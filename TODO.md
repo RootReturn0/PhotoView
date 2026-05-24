@@ -15,8 +15,9 @@
 - [x] Tauri 工程 subagent：初始化 Tauri 跨平台项目结构。
 - [ ] Tauri 工程 subagent：配置窗口、菜单、应用图标、基础权限。
 - [ ] Tauri 工程 subagent：封装文件夹选择、打开文件所在位置、复制路径等系统能力。
-- [ ] 数据库 subagent：设计 collections、images、tags、favorites、history、settings 表结构。
-- [ ] 数据库 subagent：实现 schema migration 和基础 CRUD。
+- [x] 数据库 subagent：设计 collections、images、tags、favorites、history、settings 表结构。
+- [x] 数据库 subagent：实现 schema migration。
+- [ ] 数据库 subagent：实现 collections、images、tags、settings 基础 CRUD。
 - [ ] 文件扫描 subagent：实现文件夹导入和图片格式识别。
 - [ ] 文件扫描 subagent：实现图片元数据提取，包括文件大小、创建时间、分辨率、格式。
 - [ ] 文件扫描 subagent：实现增量扫描，避免重复入库。

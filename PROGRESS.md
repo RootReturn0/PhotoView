@@ -2,9 +2,9 @@
 
 ## Current
 
-- 阶段：阶段 0，架构与全量范围确认已完成；准备进入阶段 1 基础工程。
-- 正在做：阶段 0 文档验收、提交和推送。
-- 下一步：阶段 1 先实现应用初始化、配置路径、SQLite migration 和基础 repository。
+- 阶段：阶段 1，基础工程。
+- 正在做：应用初始化、应用数据目录和 SQLite schema migration 已完成。
+- 下一步：实现 collections、images、tags、settings 基础 CRUD，并补充文件夹选择、打开所在位置等系统 command。
 
 ## Done
 
@@ -19,6 +19,10 @@
 - 已配置应用标识 `com.dreamstronger.photoview`、产品名 `PhotoView`、主窗口 1200x800，并注册 dialog/fs/opener 插件。
 - 已新增 `docs/ARCHITECTURE.md`，锁定 Rust command/API、数据库、缩略图缓存、配置目录、后台任务和前端状态边界。
 - 已新增 `docs/ACCEPTANCE.md`，把 `plan.md` 全部功能整理为可验收清单，并明确阶段划分不裁剪功能。
+- 已新增 Rust 基础模块：`app`、`commands`、`db`、`errors`、`paths`。
+- 已实现应用数据目录初始化、SQLite schema migration、默认设置写入和 `get_app_status` command。
+- 已替换模板首页为 PhotoView 应用骨架，可展示 schema、图片数、标签数和初始化错误。
+- 已完成本轮验证：`pnpm build` 通过，`cargo test` 通过，`cargo fmt --check` 通过。
 
 ## Blocked
 

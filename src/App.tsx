@@ -1,49 +1,88 @@
-import { useState } from "react";
-import reactLogo from "./assets/react.svg";
+import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import "./App.css";
 
-function App() {
-  const [greetMsg, setGreetMsg] = useState("");
-  const [name, setName] = useState("");
+type AppStatus = {
+  product_name: string;
+  version: string;
+  paths: {
+    app_data_dir: string;
+    database_path: string;
+    thumbnails_dir: string;
+  };
+  schema_version: number;
+  current_schema_version: number;
+  collection_count: number;
+  image_count: number;
+  tag_count: number;
+};
 
-  async function greet() {
-    // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-    setGreetMsg(await invoke("greet", { name }));
-  }
+function App() {
+  const [status, setStatus] = useState<AppStatus | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    invoke<AppStatus>("get_app_status")
+      .then(setStatus)
+      .catch((value) => {
+        if (typeof value === "object" && value && "message" in value) {
+          setError(String(value.message));
+          return;
+        }
+
+        setError(String(value));
+      });
+  }, []);
 
   return (
-    <main className="container">
-      <h1>Welcome to Tauri + React</h1>
+    <main className="app-shell">
+      <aside className="sidebar" aria-label="PhotoView navigation">
+        <div className="brand">
+          <span className="brand-mark">PV</span>
+          <span>PhotoView</span>
+        </div>
+        <nav>
+          <button className="nav-item active">全部</button>
+          <button className="nav-item">收藏</button>
+          <button className="nav-item">最近</button>
+          <button className="nav-item">标签</button>
+        </nav>
+      </aside>
 
-      <div className="row">
-        <a href="https://vite.dev" target="_blank">
-          <img src="/vite.svg" className="logo vite" alt="Vite logo" />
-        </a>
-        <a href="https://tauri.app" target="_blank">
-          <img src="/tauri.svg" className="logo tauri" alt="Tauri logo" />
-        </a>
-        <a href="https://react.dev" target="_blank">
-          <img src={reactLogo} className="logo react" alt="React logo" />
-        </a>
-      </div>
-      <p>Click on the Tauri, Vite, and React logos to learn more.</p>
+      <section className="workspace">
+        <header className="toolbar">
+          <input aria-label="搜索" placeholder="搜索合集、图片或标签" />
+          <button type="button">导入</button>
+        </header>
 
-      <form
-        className="row"
-        onSubmit={(e) => {
-          e.preventDefault();
-          greet();
-        }}
-      >
-        <input
-          id="greet-input"
-          onChange={(e) => setName(e.currentTarget.value)}
-          placeholder="Enter a name..."
-        />
-        <button type="submit">Greet</button>
-      </form>
-      <p>{greetMsg}</p>
+        <section className="content">
+          <div className="section-heading">
+            <h1>全部合集</h1>
+            <span>{status ? `${status.collection_count} 个合集` : "初始化中"}</span>
+          </div>
+
+          <div className="empty-state">
+            <h2>暂无合集</h2>
+            <p>选择本地图片文件夹后，PhotoView 会在本机建立索引。</p>
+          </div>
+
+          <footer className="status-bar">
+            {error ? (
+              <span className="status-error">{error}</span>
+            ) : status ? (
+              <>
+                <span>
+                  Schema v{status.schema_version}/{status.current_schema_version}
+                </span>
+                <span>{status.image_count} 张图片</span>
+                <span>{status.tag_count} 个标签</span>
+              </>
+            ) : (
+              <span>正在初始化数据库</span>
+            )}
+          </footer>
+        </section>
+      </section>
     </main>
   );
 }
