@@ -1,48 +1,54 @@
 # Dependencies
 node_modules/
-package-lock.json
-yarn.lock
-pnpm-lock.yaml
+.pnpm-store/
 
 # Build outputs
 dist/
+dist-ssr/
 build/
 target/
-
-# Tauri
 src-tauri/target/
-src-tauri/Cargo.lock
-
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
-*~
-
-# OS
-.DS_Store
-Thumbs.db
 
 # Logs
+logs/
 *.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
 
 # Environment
 .env
 .env.local
 .env.*.local
+*.local
 
-# Database
+# Database and local app data
 *.db
 *.db-shm
 *.db-wal
-
-# Thumbnails cache
 thumbnails/
+fixtures/
 
 # Test coverage
 coverage/
 .nyc_output/
+.playwright-mcp/
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea/
+*.swp
+*.swo
+*~
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# OS
+.DS_Store
+Thumbs.db
