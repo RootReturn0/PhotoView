@@ -90,7 +90,7 @@ nav {
 
 .workspace {
   display: grid;
-  grid-template-rows: 64px minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
   min-width: 0;
 }
 
@@ -130,6 +130,12 @@ nav {
   opacity: 0.72;
 }
 
+.toolbar .secondary-action {
+  border-color: #cfd7e2;
+  background: #ffffff;
+  color: #2f3a46;
+}
+
 .content {
   display: flex;
   flex-direction: column;
@@ -153,6 +159,113 @@ nav {
 .section-heading span {
   color: #637083;
   font-size: 0.9rem;
+}
+
+.advanced-search {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+  border: 1px solid #d8e0ea;
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 12px;
+}
+
+.advanced-search label {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  color: #2f3a46;
+  font-size: 0.8rem;
+}
+
+.advanced-search input,
+.advanced-search select {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid #cfd7e2;
+  border-radius: 7px;
+  background: #f9fbfd;
+  color: #1f2933;
+  min-height: 34px;
+  padding: 6px 8px;
+}
+
+.advanced-search select[multiple] {
+  min-height: 82px;
+}
+
+.range-inputs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.search-results {
+  display: grid;
+  gap: 10px;
+  border: 1px solid #d8e0ea;
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 12px;
+}
+
+.search-results header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.search-result-groups {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.search-result-group {
+  min-width: 0;
+}
+
+.search-result-group h2 {
+  margin: 0 0 6px;
+  font-size: 0.9rem;
+}
+
+.search-result-group div {
+  display: grid;
+  gap: 6px;
+}
+
+.search-result-group button {
+  display: grid;
+  gap: 2px;
+  width: 100%;
+  border: 1px solid #d8e0ea;
+  border-radius: 7px;
+  background: #f9fbfd;
+  color: #1f2933;
+  padding: 8px;
+  text-align: left;
+}
+
+.search-result-group button:hover {
+  border-color: #8fa1b8;
+  background: #eef3f8;
+}
+
+.search-result-group span,
+.search-result-group small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.search-result-group small,
+.search-result-group p {
+  margin: 0;
+  color: #637083;
+  font-size: 0.76rem;
 }
 
 .collection-controls {
@@ -1023,6 +1136,18 @@ nav {
 
   .nav-item {
     text-align: center;
+  }
+
+  .toolbar {
+    flex-wrap: wrap;
+  }
+
+  .toolbar input {
+    flex: 1 1 100%;
+  }
+
+  .search-result-groups {
+    grid-template-columns: 1fr;
   }
 
   .selected-folder {

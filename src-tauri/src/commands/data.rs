@@ -7,10 +7,10 @@ use crate::{
         CreateImageRequest, CreateTagRequest, DeleteImageFileRequest, ImageDto,
         ImportCollectionRequest, ImportCollectionResult, ListCollectionTagAssignmentsRequest,
         ListImageTagAssignmentsRequest, ListImagesRequest, MoveImageFileRequest,
-        RenameImageFileRequest, SetTagAssignmentsRequest, SettingDto, TagAssignmentDto, TagDto,
-        TaskDto, ThumbnailCacheStatsDto, ThumbnailDto, ThumbnailTaskRequest,
-        UpdateCollectionRequest, UpdateImageRequest, UpdateSettingRequest, UpdateTagRequest,
-        ViewerImageDto,
+        RenameImageFileRequest, SearchLibraryRequest, SearchResultsDto, SetTagAssignmentsRequest,
+        SettingDto, TagAssignmentDto, TagDto, TaskDto, ThumbnailCacheStatsDto, ThumbnailDto,
+        ThumbnailTaskRequest, UpdateCollectionRequest, UpdateImageRequest, UpdateSettingRequest,
+        UpdateTagRequest, ViewerImageDto,
     },
     thumbs::{
         clear_thumbnail_cache as clear_thumbnail_cache_files, collect_thumbnail_cache_stats,
@@ -194,6 +194,14 @@ pub fn set_image_tags(
     request: SetTagAssignmentsRequest,
 ) -> AppResult<Vec<TagDto>> {
     state.with_db(|db| repositories::set_image_tags(db, request))
+}
+
+#[tauri::command]
+pub fn search_library(
+    state: State<'_, AppState>,
+    request: SearchLibraryRequest,
+) -> AppResult<SearchResultsDto> {
+    state.with_db(|db| repositories::search_library(db, request))
 }
 
 #[tauri::command]

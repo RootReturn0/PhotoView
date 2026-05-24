@@ -208,6 +208,34 @@ pub struct SetTagAssignmentsRequest {
     pub tag_ids: Vec<String>,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchLibraryRequest {
+    pub query: Option<String>,
+    pub formats: Option<Vec<String>>,
+    pub min_width: Option<i64>,
+    pub max_width: Option<i64>,
+    pub min_height: Option<i64>,
+    pub max_height: Option<i64>,
+    pub min_size_bytes: Option<i64>,
+    pub max_size_bytes: Option<i64>,
+    pub tag_ids: Option<Vec<String>>,
+    pub min_rating: Option<i64>,
+    pub max_rating: Option<i64>,
+    pub date_from: Option<String>,
+    pub date_to: Option<String>,
+    pub is_favorite: Option<bool>,
+    pub limit: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchResultsDto {
+    pub collections: Vec<CollectionDto>,
+    pub images: Vec<ImageDto>,
+    pub tags: Vec<TagDto>,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SettingDto {

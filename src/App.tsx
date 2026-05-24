@@ -20,6 +20,8 @@ import {
   Pencil,
   Play,
   RotateCw,
+  Search,
+  SlidersHorizontal,
   Star,
   Tag as TagIcon,
   Tags,
@@ -111,6 +113,12 @@ type TagAssignment = {
   tag: PhotoTag;
 };
 
+type SearchResults = {
+  collections: Collection[];
+  images: ImageRecord[];
+  tags: PhotoTag[];
+};
+
 type Thumbnail = {
   imageId: string;
   cachePath: string;
@@ -140,6 +148,8 @@ type ImageContextMenu = {
   y: number;
 };
 
+const SEARCH_FORMATS = ["jpg", "png", "gif", "webp", "avif", "svg", "bmp", "tiff", "ico"];
+
 function App() {
   const [status, setStatus] = useState<AppStatus | null>(null);
   const [collections, setCollections] = useState<Collection[]>([]);
@@ -162,6 +172,22 @@ function App() {
   const [selectedImportPath, setSelectedImportPath] = useState<string | null>(null);
   const [isImporting, setIsImporting] = useState(false);
   const [query, setQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<SearchResults | null>(null);
+  const [isSearching, setIsSearching] = useState(false);
+  const [isAdvancedSearchOpen, setIsAdvancedSearchOpen] = useState(false);
+  const [searchFormats, setSearchFormats] = useState<string[]>([]);
+  const [searchTagIds, setSearchTagIds] = useState<string[]>([]);
+  const [searchMinWidth, setSearchMinWidth] = useState("");
+  const [searchMaxWidth, setSearchMaxWidth] = useState("");
+  const [searchMinHeight, setSearchMinHeight] = useState("");
+  const [searchMaxHeight, setSearchMaxHeight] = useState("");
+  const [searchMinSizeMb, setSearchMinSizeMb] = useState("");
+  const [searchMaxSizeMb, setSearchMaxSizeMb] = useState("");
+  const [searchMinRating, setSearchMinRating] = useState("");
+  const [searchMaxRating, setSearchMaxRating] = useState("");
+  const [searchDateFrom, setSearchDateFrom] = useState("");
+  const [searchDateTo, setSearchDateTo] = useState("");
+  const [searchFavorite, setSearchFavorite] = useState("any");
   const [sortKey, setSortKey] = useState<CollectionSortKey>("imported");
   const [viewMode, setViewMode] = useState<CollectionViewMode>("grid");
   const [isCollectionEditorOpen, setIsCollectionEditorOpen] = useState(false);
@@ -182,6 +208,7 @@ function App() {
   const importInFlight = useRef(false);
   const thumbnailRequests = useRef(new Set<string>());
   const viewerAssetRequest = useRef(0);
+  const pendingImageFocusId = useRef<string | null>(null);
   const imageListRef = useRef<HTMLDivElement | null>(null);
   const viewerRef = useRef<HTMLDivElement | null>(null);
 
@@ -495,6 +522,20 @@ function App() {
       setThumbnails({});
       setThumbnailErrors({});
       thumbnailRequests.current.clear();
+      const pendingImageId = pendingImageFocusId.current;
+      if (pendingImageId) {
+        pendingImageFocusId.current = null;
+        if (nextImages.some((image) => image.id === pendingImageId)) {
+          setSelectedImageIds(new Set([pendingImageId]));
+          setNotice("已定位图片");
+          window.setTimeout(() => {
+            const index = nextImages.findIndex((image) => image.id === pendingImageId);
+            if (index >= 0) {
+              imageVirtualizer.scrollToIndex(index, { align: "center" });
+            }
+          }, 0);
+        }
+      }
     } catch (value) {
       setError(invokeErrorMessage(value));
     } finally {
@@ -627,6 +668,75 @@ function App() {
     } catch (value) {
       setError(invokeErrorMessage(value));
     }
+  }
+
+  async function performSearch() {
+    setError(null);
+    setNotice(null);
+    setIsSearching(true);
+
+    if (!isTauriRuntime()) {
+      setNotice("请在桌面应用中搜索");
+      setIsSearching(false);
+      return;
+    }
+
+    try {
+      const results = await invoke<SearchResults>("search_library", {
+        request: {
+          query: query.trim() || null,
+          formats: searchFormats,
+          minWidth: numberOrNull(searchMinWidth),
+          maxWidth: numberOrNull(searchMaxWidth),
+          minHeight: numberOrNull(searchMinHeight),
+          maxHeight: numberOrNull(searchMaxHeight),
+          minSizeBytes: megabytesToBytesOrNull(searchMinSizeMb),
+          maxSizeBytes: megabytesToBytesOrNull(searchMaxSizeMb),
+          tagIds: searchTagIds,
+          minRating: numberOrNull(searchMinRating),
+          maxRating: numberOrNull(searchMaxRating),
+          dateFrom: searchDateFrom || null,
+          dateTo: searchDateTo || null,
+          isFavorite:
+            searchFavorite === "any" ? null : searchFavorite === "favorite" ? true : false,
+          limit: 500,
+        },
+      });
+      setSearchResults(results);
+      setNotice(
+        `搜索完成：${results.collections.length} 个合集，${results.images.length} 张图片，${results.tags.length} 个标签`,
+      );
+    } catch (value) {
+      setError(invokeErrorMessage(value));
+    } finally {
+      setIsSearching(false);
+    }
+  }
+
+  function clearSearchResults() {
+    setSearchResults(null);
+  }
+
+  function openSearchCollection(collection: Collection) {
+    clearSearchResults();
+    openCollection(collection);
+  }
+
+  function openSearchImage(image: ImageRecord) {
+    clearSearchResults();
+    setSelectedTagFilterId("all");
+    pendingImageFocusId.current = image.id;
+    if (selectedCollectionId === image.collectionId) {
+      void refreshImages(image.collectionId);
+    } else {
+      setSelectedCollectionId(image.collectionId);
+    }
+  }
+
+  function openSearchTag(tag: PhotoTag) {
+    clearSearchResults();
+    setSelectedTagFilterId(tag.id);
+    setNotice(`已筛选标签：${tag.name}`);
   }
 
   function openCollection(collection: Collection) {
@@ -1470,7 +1580,31 @@ function App() {
             placeholder="搜索合集、路径或描述"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                void performSearch();
+              }
+            }}
           />
+          <button
+            className="secondary-action"
+            type="button"
+            aria-pressed={isAdvancedSearchOpen}
+            onClick={() => setIsAdvancedSearchOpen((current) => !current)}
+          >
+            <SlidersHorizontal size={16} aria-hidden="true" />
+            <span>筛选</span>
+          </button>
+          <button
+            className="secondary-action"
+            type="button"
+            disabled={isSearching}
+            aria-busy={isSearching}
+            onClick={() => void performSearch()}
+          >
+            <Search size={16} aria-hidden="true" />
+            <span>{isSearching ? "搜索中" : "搜索"}</span>
+          </button>
           <button
             className="primary-action"
             type="button"
@@ -1484,6 +1618,203 @@ function App() {
         </header>
 
         <section className="content">
+          {isAdvancedSearchOpen ? (
+            <section className="advanced-search" aria-label="高级搜索">
+              <label>
+                <span>格式</span>
+                <select
+                  multiple
+                  aria-label="搜索格式"
+                  value={searchFormats}
+                  onChange={(event) =>
+                    setSearchFormats(
+                      Array.from(event.currentTarget.selectedOptions, (option) => option.value),
+                    )
+                  }
+                >
+                  {SEARCH_FORMATS.map((format) => (
+                    <option key={format} value={format}>
+                      {format.toUpperCase()}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                <span>标签</span>
+                <select
+                  multiple
+                  aria-label="搜索标签"
+                  value={searchTagIds}
+                  onChange={(event) =>
+                    setSearchTagIds(
+                      Array.from(event.currentTarget.selectedOptions, (option) => option.value),
+                    )
+                  }
+                >
+                  {tags.map((tag) => (
+                    <option key={tag.id} value={tag.id}>
+                      {tag.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                <span>宽度</span>
+                <div className="range-inputs">
+                  <input
+                    aria-label="最小宽度"
+                    inputMode="numeric"
+                    placeholder="min"
+                    value={searchMinWidth}
+                    onChange={(event) => setSearchMinWidth(event.target.value)}
+                  />
+                  <input
+                    aria-label="最大宽度"
+                    inputMode="numeric"
+                    placeholder="max"
+                    value={searchMaxWidth}
+                    onChange={(event) => setSearchMaxWidth(event.target.value)}
+                  />
+                </div>
+              </label>
+              <label>
+                <span>高度</span>
+                <div className="range-inputs">
+                  <input
+                    aria-label="最小高度"
+                    inputMode="numeric"
+                    placeholder="min"
+                    value={searchMinHeight}
+                    onChange={(event) => setSearchMinHeight(event.target.value)}
+                  />
+                  <input
+                    aria-label="最大高度"
+                    inputMode="numeric"
+                    placeholder="max"
+                    value={searchMaxHeight}
+                    onChange={(event) => setSearchMaxHeight(event.target.value)}
+                  />
+                </div>
+              </label>
+              <label>
+                <span>大小 MB</span>
+                <div className="range-inputs">
+                  <input
+                    aria-label="最小大小"
+                    inputMode="decimal"
+                    placeholder="min"
+                    value={searchMinSizeMb}
+                    onChange={(event) => setSearchMinSizeMb(event.target.value)}
+                  />
+                  <input
+                    aria-label="最大大小"
+                    inputMode="decimal"
+                    placeholder="max"
+                    value={searchMaxSizeMb}
+                    onChange={(event) => setSearchMaxSizeMb(event.target.value)}
+                  />
+                </div>
+              </label>
+              <label>
+                <span>评分</span>
+                <div className="range-inputs">
+                  <input
+                    aria-label="最低评分"
+                    inputMode="numeric"
+                    placeholder="min"
+                    value={searchMinRating}
+                    onChange={(event) => setSearchMinRating(event.target.value)}
+                  />
+                  <input
+                    aria-label="最高评分"
+                    inputMode="numeric"
+                    placeholder="max"
+                    value={searchMaxRating}
+                    onChange={(event) => setSearchMaxRating(event.target.value)}
+                  />
+                </div>
+              </label>
+              <label>
+                <span>日期</span>
+                <div className="range-inputs">
+                  <input
+                    aria-label="开始日期"
+                    type="date"
+                    value={searchDateFrom}
+                    onChange={(event) => setSearchDateFrom(event.target.value)}
+                  />
+                  <input
+                    aria-label="结束日期"
+                    type="date"
+                    value={searchDateTo}
+                    onChange={(event) => setSearchDateTo(event.target.value)}
+                  />
+                </div>
+              </label>
+              <label>
+                <span>收藏</span>
+                <select
+                  aria-label="收藏状态"
+                  value={searchFavorite}
+                  onChange={(event) => setSearchFavorite(event.target.value)}
+                >
+                  <option value="any">不限</option>
+                  <option value="favorite">已收藏</option>
+                  <option value="plain">未收藏</option>
+                </select>
+              </label>
+            </section>
+          ) : null}
+
+          {searchResults ? (
+            <section className="search-results" aria-label="搜索结果">
+              <header>
+                <strong>搜索结果</strong>
+                <button
+                  aria-label="关闭搜索结果"
+                  className="icon-button compact"
+                  title="关闭搜索结果"
+                  type="button"
+                  onClick={clearSearchResults}
+                >
+                  <X size={14} aria-hidden="true" />
+                </button>
+              </header>
+              <div className="search-result-groups">
+                <SearchResultGroup
+                  title="合集"
+                  emptyText="无合集"
+                  items={searchResults.collections.map((collection) => ({
+                    id: collection.id,
+                    title: collection.name,
+                    meta: collection.path,
+                    onClick: () => openSearchCollection(collection),
+                  }))}
+                />
+                <SearchResultGroup
+                  title="图片"
+                  emptyText="无图片"
+                  items={searchResults.images.map((image) => ({
+                    id: image.id,
+                    title: image.fileName,
+                    meta: image.path,
+                    onClick: () => openSearchImage(image),
+                  }))}
+                />
+                <SearchResultGroup
+                  title="标签"
+                  emptyText="无标签"
+                  items={searchResults.tags.map((tag) => ({
+                    id: tag.id,
+                    title: tag.name,
+                    meta: tag.color,
+                    onClick: () => openSearchTag(tag),
+                  }))}
+                />
+              </div>
+            </section>
+          ) : null}
+
           {selectedCollection ? (
             <>
               <div className="section-heading detail-heading">
@@ -2383,6 +2714,41 @@ function App() {
   );
 }
 
+type SearchResultItem = {
+  id: string;
+  title: string;
+  meta: string;
+  onClick: () => void;
+};
+
+function SearchResultGroup({
+  title,
+  emptyText,
+  items,
+}: {
+  title: string;
+  emptyText: string;
+  items: SearchResultItem[];
+}) {
+  return (
+    <section className="search-result-group">
+      <h2>{title}</h2>
+      {items.length > 0 ? (
+        <div>
+          {items.map((item) => (
+            <button key={item.id} type="button" onClick={item.onClick}>
+              <span>{item.title}</span>
+              <small>{item.meta}</small>
+            </button>
+          ))}
+        </div>
+      ) : (
+        <p>{emptyText}</p>
+      )}
+    </section>
+  );
+}
+
 function invokeErrorMessage(value: unknown): string {
   if (typeof value === "object" && value && "message" in value) {
     return String(value.message);
@@ -2470,6 +2836,21 @@ function tagChipStyle(tag: PhotoTag) {
     borderColor: tag.color,
     color: tag.color,
   };
+}
+
+function numberOrNull(value: string): number | null {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  const number = Number(trimmed);
+  return Number.isFinite(number) ? number : null;
+}
+
+function megabytesToBytesOrNull(value: string): number | null {
+  const number = numberOrNull(value);
+  return number === null ? null : Math.round(number * 1024 * 1024);
 }
 
 function clamp(value: number, min: number, max: number): number {

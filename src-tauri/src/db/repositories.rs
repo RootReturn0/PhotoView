@@ -5,14 +5,14 @@ use crate::{
         CreateTagRequest, DeleteImageFileRequest, ImageDto, ImportCollectionRequest,
         ImportCollectionResult, ImportErrorDto, ListCollectionTagAssignmentsRequest,
         ListImageTagAssignmentsRequest, ListImagesRequest, MoveImageFileRequest,
-        RenameImageFileRequest, SetTagAssignmentsRequest, SettingDto, TagAssignmentDto, TagDto,
-        TaskDto, UpdateCollectionRequest, UpdateImageRequest, UpdateSettingRequest,
-        UpdateTagRequest,
+        RenameImageFileRequest, SearchLibraryRequest, SearchResultsDto, SetTagAssignmentsRequest,
+        SettingDto, TagAssignmentDto, TagDto, TaskDto, UpdateCollectionRequest, UpdateImageRequest,
+        UpdateSettingRequest, UpdateTagRequest,
     },
     scanner::{self, ScanCandidate},
 };
 use chrono::{DateTime, Utc};
-use rusqlite::{params, Connection, OptionalExtension, Row};
+use rusqlite::{params, params_from_iter, types::Value, Connection, OptionalExtension, Row};
 use std::{fs, path::Path, time::SystemTime};
 use uuid::Uuid;
 
@@ -823,6 +823,161 @@ pub fn set_image_tags(
     list_tags_for_image(conn, &image_id)
 }
 
+pub fn search_library(
+    conn: &Connection,
+    request: SearchLibraryRequest,
+) -> AppResult<SearchResultsDto> {
+    let criteria = SearchCriteria::from_request(conn, request)?;
+
+    Ok(SearchResultsDto {
+        collections: search_collections(conn, &criteria)?,
+        images: search_images(conn, &criteria)?,
+        tags: search_tags(conn, &criteria)?,
+    })
+}
+
+fn search_collections(
+    conn: &Connection,
+    criteria: &SearchCriteria,
+) -> AppResult<Vec<CollectionDto>> {
+    if criteria.has_image_only_filters() {
+        return Ok(Vec::new());
+    }
+
+    let mut sql = "
+        SELECT DISTINCT c.id, c.path, c.name, c.cover_image_id, c.description, c.rating,
+               c.is_favorite, c.image_count, c.total_size_bytes, c.created_at, c.imported_at,
+               c.updated_at, c.last_viewed_at, c.view_count
+        FROM collections c
+        WHERE c.deleted_at IS NULL
+    "
+    .to_string();
+    let mut params = Vec::new();
+
+    if let Some(query) = &criteria.query {
+        sql.push_str(
+            "
+            AND (
+              lower(c.name) LIKE ? OR lower(c.path) LIKE ? OR lower(c.description) LIKE ?
+              OR EXISTS (
+                SELECT 1
+                FROM collection_tags ct
+                INNER JOIN tags t ON t.id = ct.tag_id
+                WHERE ct.collection_id = c.id AND lower(t.name) LIKE ?
+              )
+            )
+            ",
+        );
+        push_like_params(&mut params, query, 4);
+    }
+    append_tag_exists_filter(
+        &mut sql,
+        &mut params,
+        "collection_tags",
+        "collection_id",
+        "c.id",
+        criteria,
+    );
+    append_common_filters(&mut sql, &mut params, "c", criteria);
+    sql.push_str(" ORDER BY c.updated_at DESC, c.name COLLATE NOCASE ASC LIMIT ?");
+    params.push(Value::Integer(criteria.limit));
+
+    let mut stmt = conn.prepare(&sql)?;
+    let rows = collect_rows(stmt.query_map(params_from_iter(params), collection_from_row)?);
+    rows
+}
+
+fn search_images(conn: &Connection, criteria: &SearchCriteria) -> AppResult<Vec<ImageDto>> {
+    let mut sql = "
+        SELECT DISTINCT i.id, i.collection_id, i.path, i.file_name, i.extension, i.format,
+               i.size_bytes, i.width, i.height, i.created_at, i.modified_at, i.imported_at,
+               i.updated_at, i.sha256, i.phash, i.rating, i.is_favorite, i.is_missing,
+               i.last_viewed_at, i.view_count
+        FROM images i
+        INNER JOIN collections c ON c.id = i.collection_id
+        WHERE c.deleted_at IS NULL
+    "
+    .to_string();
+    let mut params = Vec::new();
+
+    if let Some(query) = &criteria.query {
+        sql.push_str(
+            "
+            AND (
+              lower(i.file_name) LIKE ? OR lower(i.path) LIKE ? OR lower(i.format) LIKE ?
+              OR lower(c.name) LIKE ?
+              OR EXISTS (
+                SELECT 1
+                FROM image_tags it
+                INNER JOIN tags t ON t.id = it.tag_id
+                WHERE it.image_id = i.id AND lower(t.name) LIKE ?
+              )
+            )
+            ",
+        );
+        push_like_params(&mut params, query, 5);
+    }
+    append_formats_filter(&mut sql, &mut params, criteria);
+    append_range_filter(&mut sql, &mut params, "i.width", criteria.min_width, ">=");
+    append_range_filter(&mut sql, &mut params, "i.width", criteria.max_width, "<=");
+    append_range_filter(&mut sql, &mut params, "i.height", criteria.min_height, ">=");
+    append_range_filter(&mut sql, &mut params, "i.height", criteria.max_height, "<=");
+    append_range_filter(
+        &mut sql,
+        &mut params,
+        "i.size_bytes",
+        criteria.min_size_bytes,
+        ">=",
+    );
+    append_range_filter(
+        &mut sql,
+        &mut params,
+        "i.size_bytes",
+        criteria.max_size_bytes,
+        "<=",
+    );
+    append_tag_exists_filter(
+        &mut sql,
+        &mut params,
+        "image_tags",
+        "image_id",
+        "i.id",
+        criteria,
+    );
+    append_common_filters(&mut sql, &mut params, "i", criteria);
+    sql.push_str(" ORDER BY i.updated_at DESC, i.file_name COLLATE NOCASE ASC LIMIT ?");
+    params.push(Value::Integer(criteria.limit));
+
+    let mut stmt = conn.prepare(&sql)?;
+    let rows = collect_rows(stmt.query_map(params_from_iter(params), image_from_row)?);
+    rows
+}
+
+fn search_tags(conn: &Connection, criteria: &SearchCriteria) -> AppResult<Vec<TagDto>> {
+    let Some(query) = &criteria.query else {
+        return Ok(Vec::new());
+    };
+    if criteria.has_non_query_filters() {
+        return Ok(Vec::new());
+    }
+
+    let mut stmt = conn.prepare(
+        "
+        SELECT id, name, color, created_at, updated_at
+        FROM tags
+        WHERE lower(name) LIKE ?
+        ORDER BY name COLLATE NOCASE ASC
+        LIMIT ?
+        ",
+    )?;
+    let params = vec![
+        Value::Text(format!("%{}%", query.to_lowercase())),
+        Value::Integer(criteria.limit),
+    ];
+    let rows = collect_rows(stmt.query_map(params_from_iter(params), tag_from_row)?);
+    rows
+}
+
 pub fn list_settings(conn: &Connection) -> AppResult<Vec<SettingDto>> {
     let mut stmt = conn.prepare(
         "
@@ -1283,6 +1438,191 @@ fn validate_tag_ids(conn: &Connection, tag_ids: Vec<String>) -> AppResult<Vec<St
     Ok(unique)
 }
 
+struct SearchCriteria {
+    query: Option<String>,
+    formats: Vec<String>,
+    min_width: Option<i64>,
+    max_width: Option<i64>,
+    min_height: Option<i64>,
+    max_height: Option<i64>,
+    min_size_bytes: Option<i64>,
+    max_size_bytes: Option<i64>,
+    tag_ids: Vec<String>,
+    min_rating: Option<i64>,
+    max_rating: Option<i64>,
+    date_from: Option<String>,
+    date_to: Option<String>,
+    is_favorite: Option<bool>,
+    limit: i64,
+}
+
+impl SearchCriteria {
+    fn from_request(conn: &Connection, request: SearchLibraryRequest) -> AppResult<Self> {
+        let query = request
+            .query
+            .map(|value| value.trim().to_lowercase())
+            .filter(|value| !value.is_empty());
+        let formats = request
+            .formats
+            .unwrap_or_default()
+            .into_iter()
+            .map(|value| value.trim().trim_start_matches('.').to_ascii_lowercase())
+            .filter(|value| !value.is_empty())
+            .fold(Vec::new(), |mut formats, value| {
+                if !formats.contains(&value) {
+                    formats.push(value);
+                }
+                formats
+            });
+        let tag_ids = validate_tag_ids(conn, request.tag_ids.unwrap_or_default())?;
+        let min_rating = request.min_rating.map(validate_rating).transpose()?;
+        let max_rating = request.max_rating.map(validate_rating).transpose()?;
+        if let (Some(min), Some(max)) = (min_rating, max_rating) {
+            if min > max {
+                return Err(AppError::new(
+                    "validation_error",
+                    "最低评分不能大于最高评分",
+                ));
+            }
+        }
+
+        Ok(Self {
+            query,
+            formats,
+            min_width: validate_optional_dimension(request.min_width, "最小宽度")?,
+            max_width: validate_optional_dimension(request.max_width, "最大宽度")?,
+            min_height: validate_optional_dimension(request.min_height, "最小高度")?,
+            max_height: validate_optional_dimension(request.max_height, "最大高度")?,
+            min_size_bytes: request
+                .min_size_bytes
+                .map(|value| validate_non_negative(value, "最小文件大小"))
+                .transpose()?,
+            max_size_bytes: request
+                .max_size_bytes
+                .map(|value| validate_non_negative(value, "最大文件大小"))
+                .transpose()?,
+            tag_ids,
+            min_rating,
+            max_rating,
+            date_from: request.date_from.filter(|value| !value.trim().is_empty()),
+            date_to: request.date_to.filter(|value| !value.trim().is_empty()),
+            is_favorite: request.is_favorite,
+            limit: validate_limit(request.limit.or(Some(DEFAULT_PAGE_LIMIT)))?,
+        })
+    }
+
+    fn has_image_only_filters(&self) -> bool {
+        !self.formats.is_empty()
+            || self.min_width.is_some()
+            || self.max_width.is_some()
+            || self.min_height.is_some()
+            || self.max_height.is_some()
+            || self.min_size_bytes.is_some()
+            || self.max_size_bytes.is_some()
+    }
+
+    fn has_non_query_filters(&self) -> bool {
+        self.has_image_only_filters()
+            || !self.tag_ids.is_empty()
+            || self.min_rating.is_some()
+            || self.max_rating.is_some()
+            || self.date_from.is_some()
+            || self.date_to.is_some()
+            || self.is_favorite.is_some()
+    }
+}
+
+fn push_like_params(params: &mut Vec<Value>, query: &str, count: usize) {
+    let pattern = Value::Text(format!("%{query}%"));
+    for _ in 0..count {
+        params.push(pattern.clone());
+    }
+}
+
+fn push_in_filter(sql: &mut String, params: &mut Vec<Value>, expression: &str, values: &[String]) {
+    if values.is_empty() {
+        return;
+    }
+
+    let placeholders = std::iter::repeat_n("?", values.len())
+        .collect::<Vec<_>>()
+        .join(", ");
+    sql.push_str(&format!(" AND {expression} IN ({placeholders})"));
+    params.extend(values.iter().cloned().map(Value::Text));
+}
+
+fn append_formats_filter(sql: &mut String, params: &mut Vec<Value>, criteria: &SearchCriteria) {
+    push_in_filter(sql, params, "lower(i.format)", &criteria.formats);
+}
+
+fn append_range_filter(
+    sql: &mut String,
+    params: &mut Vec<Value>,
+    column: &str,
+    value: Option<i64>,
+    operator: &str,
+) {
+    if let Some(value) = value {
+        sql.push_str(&format!(" AND {column} {operator} ?"));
+        params.push(Value::Integer(value));
+    }
+}
+
+fn append_common_filters(
+    sql: &mut String,
+    params: &mut Vec<Value>,
+    alias: &str,
+    criteria: &SearchCriteria,
+) {
+    append_range_filter(
+        sql,
+        params,
+        &format!("{alias}.rating"),
+        criteria.min_rating,
+        ">=",
+    );
+    append_range_filter(
+        sql,
+        params,
+        &format!("{alias}.rating"),
+        criteria.max_rating,
+        "<=",
+    );
+    if let Some(date_from) = &criteria.date_from {
+        sql.push_str(&format!(" AND {alias}.imported_at >= ?"));
+        params.push(Value::Text(date_from.clone()));
+    }
+    if let Some(date_to) = &criteria.date_to {
+        sql.push_str(&format!(" AND {alias}.imported_at <= ?"));
+        params.push(Value::Text(date_to.clone()));
+    }
+    if let Some(is_favorite) = criteria.is_favorite {
+        sql.push_str(&format!(" AND {alias}.is_favorite = ?"));
+        params.push(Value::Integer(bool_to_i64(is_favorite)));
+    }
+}
+
+fn append_tag_exists_filter(
+    sql: &mut String,
+    params: &mut Vec<Value>,
+    join_table: &str,
+    target_column: &str,
+    target_expression: &str,
+    criteria: &SearchCriteria,
+) {
+    if criteria.tag_ids.is_empty() {
+        return;
+    }
+
+    let placeholders = std::iter::repeat_n("?", criteria.tag_ids.len())
+        .collect::<Vec<_>>()
+        .join(", ");
+    sql.push_str(&format!(
+        " AND EXISTS (SELECT 1 FROM {join_table} jt WHERE jt.{target_column} = {target_expression} AND jt.tag_id IN ({placeholders}))"
+    ));
+    params.extend(criteria.tag_ids.iter().cloned().map(Value::Text));
+}
+
 fn ensure_affected(affected: usize, message: &str) -> AppResult<()> {
     if affected == 0 {
         return Err(AppError::new("not_found", message));
@@ -1561,6 +1901,26 @@ mod tests {
         path
     }
 
+    fn search_request(query: Option<&str>) -> SearchLibraryRequest {
+        SearchLibraryRequest {
+            query: query.map(ToOwned::to_owned),
+            formats: None,
+            min_width: None,
+            max_width: None,
+            min_height: None,
+            max_height: None,
+            min_size_bytes: None,
+            max_size_bytes: None,
+            tag_ids: None,
+            min_rating: None,
+            max_rating: None,
+            date_from: None,
+            date_to: None,
+            is_favorite: None,
+            limit: Some(20),
+        }
+    }
+
     #[test]
     fn collection_and_image_crud_round_trip() {
         let (path, conn) = temp_database();
@@ -1828,6 +2188,21 @@ mod tests {
         .expect("image tag assignments should list");
         assert_eq!(image_assignments.len(), 1);
         assert_eq!(image_assignments[0].target_id, image.id);
+
+        let query_results =
+            search_library(&conn, search_request(Some("family"))).expect("query search should run");
+        assert_eq!(query_results.collections.len(), 1);
+        assert_eq!(query_results.images.len(), 1);
+        assert_eq!(query_results.tags.len(), 1);
+
+        let mut advanced_request = search_request(None);
+        advanced_request.formats = Some(vec!["png".to_string()]);
+        advanced_request.min_width = Some(1);
+        advanced_request.tag_ids = Some(vec![second_tag.id.clone()]);
+        let advanced_results =
+            search_library(&conn, advanced_request).expect("advanced search should run");
+        assert!(advanced_results.collections.is_empty());
+        assert_eq!(advanced_results.images.len(), 1);
 
         delete_tag(&conn, &second_tag.id).expect("second tag should be deleted");
         assert_eq!(
