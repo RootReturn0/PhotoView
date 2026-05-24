@@ -236,6 +236,33 @@ pub struct SearchResultsDto {
     pub tags: Vec<TagDto>,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DuplicateDetectionRequest {
+    pub collection_id: Option<String>,
+    pub max_hamming_distance: Option<u32>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DuplicateGroupDto {
+    pub id: String,
+    pub kind: String,
+    pub score: u32,
+    pub total_size_bytes: i64,
+    pub images: Vec<ImageDto>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DuplicateDetectionResult {
+    pub scanned_count: i64,
+    pub hashed_count: i64,
+    pub failed_count: i64,
+    pub exact_groups: Vec<DuplicateGroupDto>,
+    pub similar_groups: Vec<DuplicateGroupDto>,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SettingDto {

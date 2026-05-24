@@ -268,6 +268,94 @@ nav {
   font-size: 0.76rem;
 }
 
+.duplicate-results {
+  display: grid;
+  gap: 10px;
+  border: 1px solid #d8e0ea;
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 12px;
+}
+
+.duplicate-results > header,
+.duplicate-group-card header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.duplicate-groups {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 10px;
+}
+
+.duplicate-groups > p {
+  margin: 0;
+  color: #637083;
+}
+
+.duplicate-group-card {
+  display: grid;
+  gap: 8px;
+  border: 1px solid #d8e0ea;
+  border-radius: 8px;
+  background: #f9fbfd;
+  padding: 10px;
+}
+
+.duplicate-group-card header span {
+  color: #31506f;
+  font-size: 0.86rem;
+  font-weight: 700;
+}
+
+.duplicate-group-card header button {
+  border: 1px solid #d7a4a4;
+  border-radius: 7px;
+  background: #fff0f0;
+  color: #9f2f2f;
+  min-height: 30px;
+  padding: 5px 9px;
+}
+
+.duplicate-group-card div {
+  display: grid;
+  gap: 6px;
+}
+
+.duplicate-group-card div button {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  border: 1px solid #d8e0ea;
+  border-radius: 7px;
+  background: #ffffff;
+  color: #1f2933;
+  padding: 7px 8px;
+  text-align: left;
+}
+
+.duplicate-group-card div button:hover {
+  border-color: #8fa1b8;
+  background: #eef3f8;
+}
+
+.duplicate-group-card strong {
+  overflow: hidden;
+  font-size: 0.84rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.duplicate-group-card small,
+.duplicate-group-card div span {
+  color: #637083;
+  font-size: 0.74rem;
+}
+
 .collection-controls {
   display: flex;
   align-items: center;

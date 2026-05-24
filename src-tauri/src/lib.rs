@@ -1,6 +1,7 @@
 mod app;
 mod commands;
 mod db;
+mod duplicates;
 mod errors;
 mod models;
 mod paths;
@@ -15,9 +16,9 @@ use commands::data::{
     enqueue_thumbnail_generation, get_collection, get_image, get_setting, get_settings, get_tag,
     get_task, get_thumbnail, get_thumbnail_cache_stats, get_viewer_image, import_collection,
     list_collection_tag_assignments, list_collections, list_image_tag_assignments, list_images,
-    list_tags, mark_collection_viewed, move_image_file, rename_image_file, search_library,
-    set_collection_tags, set_image_tags, update_collection, update_image, update_setting,
-    update_tag,
+    list_tags, mark_collection_viewed, move_image_file, rename_image_file, run_duplicate_detection,
+    search_library, set_collection_tags, set_image_tags, update_collection, update_image,
+    update_setting, update_tag,
 };
 use commands::system::{
     choose_import_folder, copy_path_to_clipboard, copy_text_to_clipboard, get_app_status,
@@ -90,6 +91,7 @@ pub fn run() {
             list_image_tag_assignments,
             set_image_tags,
             search_library,
+            run_duplicate_detection,
             get_settings,
             get_setting,
             update_setting,

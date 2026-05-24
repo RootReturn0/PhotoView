@@ -4,13 +4,13 @@ use crate::{
     errors::{AppError, AppResult},
     models::{
         ClearThumbnailCacheResult, CollectionDto, CopyImageFileRequest, CreateCollectionRequest,
-        CreateImageRequest, CreateTagRequest, DeleteImageFileRequest, ImageDto,
-        ImportCollectionRequest, ImportCollectionResult, ListCollectionTagAssignmentsRequest,
-        ListImageTagAssignmentsRequest, ListImagesRequest, MoveImageFileRequest,
-        RenameImageFileRequest, SearchLibraryRequest, SearchResultsDto, SetTagAssignmentsRequest,
-        SettingDto, TagAssignmentDto, TagDto, TaskDto, ThumbnailCacheStatsDto, ThumbnailDto,
-        ThumbnailTaskRequest, UpdateCollectionRequest, UpdateImageRequest, UpdateSettingRequest,
-        UpdateTagRequest, ViewerImageDto,
+        CreateImageRequest, CreateTagRequest, DeleteImageFileRequest, DuplicateDetectionRequest,
+        DuplicateDetectionResult, ImageDto, ImportCollectionRequest, ImportCollectionResult,
+        ListCollectionTagAssignmentsRequest, ListImageTagAssignmentsRequest, ListImagesRequest,
+        MoveImageFileRequest, RenameImageFileRequest, SearchLibraryRequest, SearchResultsDto,
+        SetTagAssignmentsRequest, SettingDto, TagAssignmentDto, TagDto, TaskDto,
+        ThumbnailCacheStatsDto, ThumbnailDto, ThumbnailTaskRequest, UpdateCollectionRequest,
+        UpdateImageRequest, UpdateSettingRequest, UpdateTagRequest, ViewerImageDto,
     },
     thumbs::{
         clear_thumbnail_cache as clear_thumbnail_cache_files, collect_thumbnail_cache_stats,
@@ -202,6 +202,14 @@ pub fn search_library(
     request: SearchLibraryRequest,
 ) -> AppResult<SearchResultsDto> {
     state.with_db(|db| repositories::search_library(db, request))
+}
+
+#[tauri::command]
+pub fn run_duplicate_detection(
+    state: State<'_, AppState>,
+    request: DuplicateDetectionRequest,
+) -> AppResult<DuplicateDetectionResult> {
+    state.with_db(|db| crate::duplicates::run_duplicate_detection(db, request))
 }
 
 #[tauri::command]

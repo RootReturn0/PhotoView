@@ -119,6 +119,22 @@ type SearchResults = {
   tags: PhotoTag[];
 };
 
+type DuplicateGroup = {
+  id: string;
+  kind: string;
+  score: number;
+  totalSizeBytes: number;
+  images: ImageRecord[];
+};
+
+type DuplicateDetectionResult = {
+  scannedCount: number;
+  hashedCount: number;
+  failedCount: number;
+  exactGroups: DuplicateGroup[];
+  similarGroups: DuplicateGroup[];
+};
+
 type Thumbnail = {
   imageId: string;
   cachePath: string;
@@ -174,6 +190,8 @@ function App() {
   const [query, setQuery] = useState("");
   const [searchResults, setSearchResults] = useState<SearchResults | null>(null);
   const [isSearching, setIsSearching] = useState(false);
+  const [duplicateResult, setDuplicateResult] = useState<DuplicateDetectionResult | null>(null);
+  const [isDetectingDuplicates, setIsDetectingDuplicates] = useState(false);
   const [isAdvancedSearchOpen, setIsAdvancedSearchOpen] = useState(false);
   const [searchFormats, setSearchFormats] = useState<string[]>([]);
   const [searchTagIds, setSearchTagIds] = useState<string[]>([]);
@@ -737,6 +755,70 @@ function App() {
     clearSearchResults();
     setSelectedTagFilterId(tag.id);
     setNotice(`已筛选标签：${tag.name}`);
+  }
+
+  async function runDuplicateDetection() {
+    setError(null);
+    setNotice(null);
+    setIsDetectingDuplicates(true);
+
+    if (!isTauriRuntime()) {
+      setNotice("请在桌面应用中检测重复图片");
+      setIsDetectingDuplicates(false);
+      return;
+    }
+
+    try {
+      const result = await invoke<DuplicateDetectionResult>("run_duplicate_detection", {
+        request: {
+          collectionId: selectedCollectionId,
+          maxHammingDistance: 8,
+        },
+      });
+      setDuplicateResult(result);
+      setNotice(
+        `检测完成：扫描 ${result.scannedCount} 张，完全重复 ${result.exactGroups.length} 组，相似 ${result.similarGroups.length} 组`,
+      );
+      if (selectedCollectionId) {
+        await refreshImages(selectedCollectionId);
+      } else {
+        await refreshCollections();
+      }
+    } catch (value) {
+      setError(invokeErrorMessage(value));
+    } finally {
+      setIsDetectingDuplicates(false);
+    }
+  }
+
+  async function deleteDuplicateRemainders(group: DuplicateGroup) {
+    const removableImages = group.images.slice(1);
+    if (removableImages.length === 0) {
+      return;
+    }
+
+    if (!window.confirm(`保留第一张，删除其余 ${removableImages.length} 张到回收站？`)) {
+      return;
+    }
+
+    const failed: string[] = [];
+    for (const image of removableImages) {
+      try {
+        await invoke("delete_image_file", {
+          request: { id: image.id, useTrash: true },
+        });
+      } catch (value) {
+        failed.push(`${image.fileName}: ${invokeErrorMessage(value)}`);
+      }
+    }
+
+    const removedIds = new Set(removableImages.map((image) => image.id));
+    setDuplicateResult((current) => (current ? removeDuplicateImages(current, removedIds) : current));
+    removeImagesFromCurrentView([...removedIds]);
+    await refreshCollections();
+    await refreshStatus();
+    setNotice(`已删除 ${removableImages.length - failed.length} 张重复图片`);
+    setError(failed.length > 0 ? failed.join("；") : null);
   }
 
   function openCollection(collection: Collection) {
@@ -1606,6 +1688,16 @@ function App() {
             <span>{isSearching ? "搜索中" : "搜索"}</span>
           </button>
           <button
+            className="secondary-action"
+            type="button"
+            disabled={isDetectingDuplicates}
+            aria-busy={isDetectingDuplicates}
+            onClick={() => void runDuplicateDetection()}
+          >
+            <Copy size={16} aria-hidden="true" />
+            <span>{isDetectingDuplicates ? "检测中" : "重复"}</span>
+          </button>
+          <button
             className="primary-action"
             type="button"
             disabled={isImporting}
@@ -1811,6 +1903,39 @@ function App() {
                     onClick: () => openSearchTag(tag),
                   }))}
                 />
+              </div>
+            </section>
+          ) : null}
+
+          {duplicateResult ? (
+            <section className="duplicate-results" aria-label="重复检测结果">
+              <header>
+                <strong>
+                  重复检测：{duplicateResult.hashedCount}/{duplicateResult.scannedCount} 张
+                </strong>
+                <button
+                  aria-label="关闭重复检测结果"
+                  className="icon-button compact"
+                  title="关闭重复检测结果"
+                  type="button"
+                  onClick={() => setDuplicateResult(null)}
+                >
+                  <X size={14} aria-hidden="true" />
+                </button>
+              </header>
+              <div className="duplicate-groups">
+                {[...duplicateResult.exactGroups, ...duplicateResult.similarGroups].length > 0 ? (
+                  [...duplicateResult.exactGroups, ...duplicateResult.similarGroups].map((group) => (
+                    <DuplicateGroupCard
+                      group={group}
+                      key={group.id}
+                      onDelete={() => void deleteDuplicateRemainders(group)}
+                      onOpen={(image) => openSearchImage(image)}
+                    />
+                  ))
+                ) : (
+                  <p>未发现重复图片</p>
+                )}
               </div>
             </section>
           ) : null}
@@ -2749,6 +2874,37 @@ function SearchResultGroup({
   );
 }
 
+function DuplicateGroupCard({
+  group,
+  onDelete,
+  onOpen,
+}: {
+  group: DuplicateGroup;
+  onDelete: () => void;
+  onOpen: (image: ImageRecord) => void;
+}) {
+  return (
+    <article className="duplicate-group-card">
+      <header>
+        <span>{group.kind === "exact" ? "完全重复" : `相似 ${group.score}`}</span>
+        <button className="danger" type="button" onClick={onDelete}>
+          删除其余
+        </button>
+      </header>
+      <div>
+        {group.images.map((image, index) => (
+          <button key={image.id} type="button" onClick={() => onOpen(image)}>
+            <span>{index === 0 ? "保留" : "候选"}</span>
+            <strong>{image.fileName}</strong>
+            <small>{formatBytes(image.sizeBytes)}</small>
+          </button>
+        ))}
+      </div>
+      <small>{formatBytes(group.totalSizeBytes)}</small>
+    </article>
+  );
+}
+
 function invokeErrorMessage(value: unknown): string {
   if (typeof value === "object" && value && "message" in value) {
     return String(value.message);
@@ -2829,6 +2985,25 @@ function groupTagAssignments(assignments: TagAssignment[]): Record<string, Photo
     groups[assignment.targetId] = [...(groups[assignment.targetId] ?? []), assignment.tag];
     return groups;
   }, {});
+}
+
+function removeDuplicateImages(
+  result: DuplicateDetectionResult,
+  removedIds: Set<string>,
+): DuplicateDetectionResult {
+  const filterGroups = (groups: DuplicateGroup[]) =>
+    groups
+      .map((group) => ({
+        ...group,
+        images: group.images.filter((image) => !removedIds.has(image.id)),
+      }))
+      .filter((group) => group.images.length > 1);
+
+  return {
+    ...result,
+    exactGroups: filterGroups(result.exactGroups),
+    similarGroups: filterGroups(result.similarGroups),
+  };
 }
 
 function tagChipStyle(tag: PhotoTag) {
