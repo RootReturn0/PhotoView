@@ -1,4 +1,4 @@
-import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { type DragEvent, type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import {
@@ -119,12 +119,22 @@ type ViewerImageAsset = {
 type ViewerFitMode = "fit" | "actual";
 type ImageLoadState = "loading" | "loaded" | "error";
 
+type ImageContextMenu = {
+  imageId: string;
+  x: number;
+  y: number;
+};
+
 function App() {
   const [status, setStatus] = useState<AppStatus | null>(null);
   const [collections, setCollections] = useState<Collection[]>([]);
   const [collectionsLoading, setCollectionsLoading] = useState(false);
   const [selectedCollectionId, setSelectedCollectionId] = useState<string | null>(null);
   const [images, setImages] = useState<ImageRecord[]>([]);
+  const [selectedImageIds, setSelectedImageIds] = useState<Set<string>>(new Set());
+  const [imageContextMenu, setImageContextMenu] = useState<ImageContextMenu | null>(null);
+  const [draggedImageIds, setDraggedImageIds] = useState<string[]>([]);
+  const [dragOverCollectionId, setDragOverCollectionId] = useState<string | null>(null);
   const [thumbnails, setThumbnails] = useState<Record<string, Thumbnail>>({});
   const [thumbnailErrors, setThumbnailErrors] = useState<Record<string, string>>({});
   const [imagesLoading, setImagesLoading] = useState(false);
@@ -162,6 +172,17 @@ function App() {
   );
 
   const activeImage = viewerIndex === null ? null : images[viewerIndex] ?? null;
+  const selectedImages = useMemo(
+    () => images.filter((image) => selectedImageIds.has(image.id)),
+    [images, selectedImageIds],
+  );
+  const contextImage = imageContextMenu
+    ? images.find((image) => image.id === imageContextMenu.imageId) ?? null
+    : null;
+  const collectionDropTargets = useMemo(
+    () => collections.filter((collection) => collection.id !== selectedCollectionId),
+    [collections, selectedCollectionId],
+  );
   const viewerImageSrc =
     activeImage && (!isTauriRuntime() || viewerAsset)
       ? convertImagePath(viewerAsset?.assetPath ?? activeImage.path)
@@ -201,6 +222,10 @@ function App() {
 
     closeViewer();
     setImages([]);
+    setSelectedImageIds(new Set());
+    setImageContextMenu(null);
+    setDraggedImageIds([]);
+    setDragOverCollectionId(null);
     setThumbnails({});
     setThumbnailErrors({});
     thumbnailRequests.current.clear();
@@ -301,6 +326,19 @@ function App() {
     return () => window.clearInterval(timer);
   }, [activeImage, images.length, isSlideshowActive]);
 
+  useEffect(() => {
+    if (!imageContextMenu) {
+      return;
+    }
+
+    function closeMenu() {
+      setImageContextMenu(null);
+    }
+
+    window.addEventListener("click", closeMenu);
+    return () => window.removeEventListener("click", closeMenu);
+  }, [imageContextMenu]);
+
   async function refreshAppData() {
     await Promise.all([refreshStatus(), refreshCollections()]);
   }
@@ -350,6 +388,10 @@ function App() {
         request: { collectionId, limit: 1000, offset: 0 },
       });
       setImages(nextImages);
+      setSelectedImageIds(new Set());
+      setImageContextMenu(null);
+      setDraggedImageIds([]);
+      setDragOverCollectionId(null);
       setThumbnails({});
       setThumbnailErrors({});
       thumbnailRequests.current.clear();
@@ -639,28 +681,7 @@ function App() {
       return;
     }
 
-    setError(null);
-    setNotice(null);
-
-    if (!isTauriRuntime()) {
-      setNotice("请在桌面应用中移动图片");
-      return;
-    }
-
-    try {
-      await invoke<ImageRecord>("move_image_file", {
-        request: { id: image.id, targetCollectionId: target.id },
-      });
-      setImages((current) => current.filter((item) => item.id !== image.id));
-      setThumbnails((current) => omitKey(current, image.id));
-      setThumbnailErrors((current) => omitKey(current, image.id));
-      thumbnailRequests.current.delete(image.id);
-      await refreshCollections();
-      await refreshStatus();
-      setNotice(`图片已移动到 ${target.name}`);
-    } catch (value) {
-      setError(invokeErrorMessage(value));
-    }
+    await moveImagesToCollection([image], target);
   }
 
   async function copyImage(image: ImageRecord) {
@@ -669,24 +690,7 @@ function App() {
       return;
     }
 
-    setError(null);
-    setNotice(null);
-
-    if (!isTauriRuntime()) {
-      setNotice("请在桌面应用中复制图片");
-      return;
-    }
-
-    try {
-      await invoke<ImageRecord>("copy_image_file", {
-        request: { id: image.id, targetCollectionId: target.id },
-      });
-      await refreshCollections();
-      await refreshStatus();
-      setNotice(`图片已复制到 ${target.name}`);
-    } catch (value) {
-      setError(invokeErrorMessage(value));
-    }
+    await copyImagesToCollection([image], target);
   }
 
   async function deleteImage(image: ImageRecord) {
@@ -742,6 +746,252 @@ function App() {
     }
 
     return candidates.find((collection) => collection.id === value) ?? null;
+  }
+
+  function toggleImageSelection(imageId: string) {
+    setSelectedImageIds((current) => {
+      const next = new Set(current);
+      if (next.has(imageId)) {
+        next.delete(imageId);
+      } else {
+        next.add(imageId);
+      }
+      return next;
+    });
+  }
+
+  function clearImageSelection() {
+    setSelectedImageIds(new Set());
+  }
+
+  function imageActionGroup(image: ImageRecord): ImageRecord[] {
+    if (!selectedImageIds.has(image.id)) {
+      return [image];
+    }
+
+    return images.filter((item) => selectedImageIds.has(item.id));
+  }
+
+  async function moveImagesToCollection(imagesToMove: ImageRecord[], target: Collection) {
+    if (imagesToMove.length === 0) {
+      return;
+    }
+
+    setError(null);
+    setNotice(null);
+
+    if (!isTauriRuntime()) {
+      setNotice("请在桌面应用中移动图片");
+      return;
+    }
+
+    const failed: string[] = [];
+    const movedIds: string[] = [];
+    for (const image of imagesToMove) {
+      try {
+        await invoke<ImageRecord>("move_image_file", {
+          request: { id: image.id, targetCollectionId: target.id },
+        });
+        movedIds.push(image.id);
+      } catch (value) {
+        failed.push(`${image.fileName}: ${invokeErrorMessage(value)}`);
+      }
+    }
+
+    removeImagesFromCurrentView(movedIds);
+    await refreshCollections();
+    await refreshStatus();
+    setNotice(`已移动 ${movedIds.length} 张到 ${target.name}`);
+    setError(failed.length > 0 ? failed.join("；") : null);
+  }
+
+  async function copyImagesToCollection(imagesToCopy: ImageRecord[], target: Collection) {
+    if (imagesToCopy.length === 0) {
+      return;
+    }
+
+    setError(null);
+    setNotice(null);
+
+    if (!isTauriRuntime()) {
+      setNotice("请在桌面应用中复制图片");
+      return;
+    }
+
+    const failed: string[] = [];
+    let copiedCount = 0;
+    for (const image of imagesToCopy) {
+      try {
+        await invoke<ImageRecord>("copy_image_file", {
+          request: { id: image.id, targetCollectionId: target.id },
+        });
+        copiedCount += 1;
+      } catch (value) {
+        failed.push(`${image.fileName}: ${invokeErrorMessage(value)}`);
+      }
+    }
+
+    clearImageSelection();
+    await refreshCollections();
+    await refreshStatus();
+    setNotice(`已复制 ${copiedCount} 张到 ${target.name}`);
+    setError(failed.length > 0 ? failed.join("；") : null);
+  }
+
+  function removeImagesFromCurrentView(imageIds: string[]) {
+    if (imageIds.length === 0) {
+      return;
+    }
+
+    const imageIdSet = new Set(imageIds);
+    setImages((current) => current.filter((image) => !imageIdSet.has(image.id)));
+    setSelectedImageIds((current) => {
+      const next = new Set(current);
+      for (const imageId of imageIds) {
+        next.delete(imageId);
+      }
+      return next;
+    });
+    setThumbnails((current) => omitKeys(current, imageIdSet));
+    setThumbnailErrors((current) => omitKeys(current, imageIdSet));
+    for (const imageId of imageIds) {
+      thumbnailRequests.current.delete(imageId);
+    }
+    if (activeImage && imageIdSet.has(activeImage.id)) {
+      closeViewer();
+    }
+  }
+
+  async function batchMoveImages() {
+    const target = chooseTargetCollection("批量移动到合集");
+    if (!target || selectedImages.length === 0) {
+      return;
+    }
+
+    await moveImagesToCollection(selectedImages, target);
+  }
+
+  async function batchCopyImages() {
+    const target = chooseTargetCollection("批量复制到合集");
+    if (!target || selectedImages.length === 0) {
+      return;
+    }
+
+    await copyImagesToCollection(selectedImages, target);
+  }
+
+  async function batchDeleteImages() {
+    if (selectedImages.length === 0) {
+      return;
+    }
+
+    if (!window.confirm(`删除选中的 ${selectedImages.length} 张图片？默认移到系统回收站。`)) {
+      return;
+    }
+
+    if (!isTauriRuntime()) {
+      setNotice("请在桌面应用中批量删除图片");
+      return;
+    }
+
+    setError(null);
+    setNotice(null);
+
+    const failed: string[] = [];
+    const deletedIds: string[] = [];
+    for (const image of selectedImages) {
+      try {
+        await invoke("delete_image_file", {
+          request: { id: image.id, useTrash: true },
+        });
+        deletedIds.push(image.id);
+      } catch (value) {
+        failed.push(`${image.fileName}: ${invokeErrorMessage(value)}`);
+      }
+    }
+
+    removeImagesFromCurrentView(deletedIds);
+    await refreshCollections();
+    await refreshStatus();
+    setNotice(`已删除 ${deletedIds.length} 张图片`);
+    setError(failed.length > 0 ? failed.join("；") : null);
+  }
+
+  async function batchRateImages() {
+    if (selectedImages.length === 0) {
+      return;
+    }
+
+    const value = window.prompt("评分 0-5", "0")?.trim();
+    if (value === undefined || value === null || value === "") {
+      return;
+    }
+
+    const rating = Number(value);
+    if (!Number.isInteger(rating) || rating < 0 || rating > 5) {
+      setError("评分必须是 0 到 5 的整数");
+      return;
+    }
+
+    if (!isTauriRuntime()) {
+      setNotice("请在桌面应用中批量评分");
+      return;
+    }
+
+    const failed: string[] = [];
+    for (const image of selectedImages) {
+      try {
+        const updated = await invoke<ImageRecord>("update_image", {
+          request: { id: image.id, rating },
+        });
+        setImages((current) =>
+          current.map((item) => (item.id === updated.id ? updated : item)),
+        );
+      } catch (value) {
+        failed.push(`${image.fileName}: ${invokeErrorMessage(value)}`);
+      }
+    }
+
+    clearImageSelection();
+    setNotice(`已评分 ${selectedImages.length - failed.length} 张图片`);
+    setError(failed.length > 0 ? failed.join("；") : null);
+  }
+
+  function handleImageDragStart(event: DragEvent<HTMLElement>, image: ImageRecord) {
+    const imagesToDrag = imageActionGroup(image);
+    const imageIds = imagesToDrag.map((item) => item.id);
+    setDraggedImageIds(imageIds);
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("application/x-photoview-image-ids", JSON.stringify(imageIds));
+    event.dataTransfer.setData("text/plain", imageIds.join(","));
+  }
+
+  function handleImageDragEnd() {
+    setDraggedImageIds([]);
+    setDragOverCollectionId(null);
+  }
+
+  async function dropImagesOnCollection(event: DragEvent<HTMLElement>, target: Collection) {
+    event.preventDefault();
+    event.stopPropagation();
+
+    const rawIds = event.dataTransfer.getData("application/x-photoview-image-ids");
+    const imageIds = parseDraggedImageIds(rawIds, draggedImageIds);
+    const imageIdSet = new Set(imageIds);
+    const imagesToMove = images.filter((image) => imageIdSet.has(image.id));
+
+    handleImageDragEnd();
+    await moveImagesToCollection(imagesToMove, target);
+  }
+
+  function handleCollectionDragOver(event: DragEvent<HTMLElement>, collectionId: string) {
+    if (draggedImageIds.length === 0) {
+      return;
+    }
+
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+    setDragOverCollectionId(collectionId);
   }
 
   async function deleteSelectedCollectionRecord() {
@@ -951,6 +1201,61 @@ function App() {
                 </button>
               </div>
 
+              {selectedImages.length > 0 ? (
+                <div className="batch-toolbar" aria-label="批量图片操作">
+                  <span>已选 {selectedImages.length} 张</span>
+                  <button type="button" onClick={() => void batchMoveImages()}>
+                    <MoveRight size={15} aria-hidden="true" />
+                    <span>移动</span>
+                  </button>
+                  <button type="button" onClick={() => void batchCopyImages()}>
+                    <Copy size={15} aria-hidden="true" />
+                    <span>复制</span>
+                  </button>
+                  <button type="button" onClick={() => void batchRateImages()}>
+                    <Star size={15} aria-hidden="true" />
+                    <span>评分</span>
+                  </button>
+                  <button className="danger" type="button" onClick={() => void batchDeleteImages()}>
+                    <Trash2 size={15} aria-hidden="true" />
+                    <span>删除</span>
+                  </button>
+                  <button type="button" onClick={clearImageSelection}>
+                    <X size={15} aria-hidden="true" />
+                    <span>取消</span>
+                  </button>
+                </div>
+              ) : null}
+
+              {collectionDropTargets.length > 0 &&
+              (selectedImages.length > 0 || draggedImageIds.length > 0) ? (
+                <div className="collection-drop-strip" aria-label="图片移动目标">
+                  {collectionDropTargets.map((collection) => (
+                    <button
+                      aria-label={`移动到 ${collection.name}`}
+                      className={`collection-drop-target ${
+                        dragOverCollectionId === collection.id ? "over" : ""
+                      }`}
+                      key={collection.id}
+                      type="button"
+                      onClick={() => {
+                        if (selectedImages.length > 0) {
+                          void moveImagesToCollection(selectedImages, collection);
+                        }
+                      }}
+                      onDragEnter={() => setDragOverCollectionId(collection.id)}
+                      onDragLeave={() => setDragOverCollectionId(null)}
+                      onDragOver={(event) => handleCollectionDragOver(event, collection.id)}
+                      onDrop={(event) => void dropImagesOnCollection(event, collection)}
+                    >
+                      <Images size={16} aria-hidden="true" />
+                      <span>{collection.name}</span>
+                      <small>{collection.imageCount} 张</small>
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+
               <section className="image-surface" ref={imageListRef} aria-busy={imagesLoading}>
                 {imagesLoading ? (
                   <div className="empty-state">
@@ -967,18 +1272,46 @@ function App() {
 
                       return (
                         <article
-                          className="image-row"
+                          aria-selected={selectedImageIds.has(image.id)}
+                          className={`image-row ${
+                            selectedImageIds.has(image.id) ? "selected" : ""
+                          }`}
+                          draggable
                           key={image.id}
                           role="button"
                           tabIndex={0}
                           style={{ transform: `translateY(${virtualItem.start}px)` }}
+                          onContextMenu={(event) => {
+                            event.preventDefault();
+                            if (!selectedImageIds.has(image.id)) {
+                              setSelectedImageIds(new Set([image.id]));
+                            }
+                            setImageContextMenu({
+                              imageId: image.id,
+                              x: event.clientX,
+                              y: event.clientY,
+                            });
+                          }}
                           onDoubleClick={() => openViewer(virtualItem.index)}
+                          onDragEnd={handleImageDragEnd}
+                          onDragStart={(event) => handleImageDragStart(event, image)}
                           onKeyDown={(event) => {
                             if (event.key === "Enter") {
                               openViewer(virtualItem.index);
                             }
                           }}
                         >
+                          <label
+                            className="image-select"
+                            onClick={(event) => event.stopPropagation()}
+                          >
+                            <input
+                              aria-label="选择图片"
+                              checked={selectedImageIds.has(image.id)}
+                              type="checkbox"
+                              onChange={() => toggleImageSelection(image.id)}
+                            />
+                          </label>
                           <div className="image-thumb-placeholder">
                             {thumbnails[image.id] ? (
                               <img
@@ -1261,6 +1594,81 @@ function App() {
           </footer>
         </section>
       </section>
+
+      {imageContextMenu && contextImage ? (
+        <div
+          className="context-menu"
+          style={{ left: imageContextMenu.x, top: imageContextMenu.y }}
+          role="menu"
+          onClick={(event) => event.stopPropagation()}
+        >
+          <button
+            role="menuitem"
+            type="button"
+            onClick={() => {
+              setImageContextMenu(null);
+              openViewer(images.indexOf(contextImage));
+            }}
+          >
+            打开
+          </button>
+          <button
+            role="menuitem"
+            type="button"
+            onClick={() => {
+              setImageContextMenu(null);
+              void renameImage(contextImage);
+            }}
+          >
+            重命名
+          </button>
+          <button
+            role="menuitem"
+            type="button"
+            onClick={() => {
+              setImageContextMenu(null);
+              void moveImage(contextImage);
+            }}
+          >
+            移动
+          </button>
+          <button
+            role="menuitem"
+            type="button"
+            onClick={() => {
+              setImageContextMenu(null);
+              void copyImage(contextImage);
+            }}
+          >
+            复制
+          </button>
+          <button
+            role="menuitem"
+            type="button"
+            onClick={() => {
+              setImageContextMenu(null);
+              setNotice(
+                `${contextImage.fileName}，${contextImage.format}，${formatBytes(
+                  contextImage.sizeBytes,
+                )}`,
+              );
+            }}
+          >
+            信息
+          </button>
+          <button
+            className="danger"
+            role="menuitem"
+            type="button"
+            onClick={() => {
+              setImageContextMenu(null);
+              void deleteImage(contextImage);
+            }}
+          >
+            删除
+          </button>
+        </div>
+      ) : null}
 
       {isCollectionEditorOpen && selectedCollection ? (
         <section className="modal-backdrop" role="presentation">
@@ -1568,9 +1976,34 @@ function convertImagePath(path: string): string {
   return isTauriRuntime() ? convertFileSrc(path) : path;
 }
 
+function parseDraggedImageIds(rawIds: string, fallback: string[]): string[] {
+  if (!rawIds) {
+    return fallback;
+  }
+
+  try {
+    const parsed = JSON.parse(rawIds);
+    if (Array.isArray(parsed) && parsed.every((value) => typeof value === "string")) {
+      return parsed;
+    }
+  } catch {
+    return fallback;
+  }
+
+  return fallback;
+}
+
 function omitKey<T>(record: Record<string, T>, key: string): Record<string, T> {
   const next = { ...record };
   delete next[key];
+  return next;
+}
+
+function omitKeys<T>(record: Record<string, T>, keys: Set<string>): Record<string, T> {
+  const next = { ...record };
+  for (const key of keys) {
+    delete next[key];
+  }
   return next;
 }
 
