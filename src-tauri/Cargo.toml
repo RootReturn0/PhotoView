@@ -35,3 +35,4 @@ uuid = { version = "1.23.1", features = ["v4", "serde"] }
 chrono = { version = "0.4.44", features = ["serde"] }
 image = "0.25.10"
 kamadak-exif = "0.6.1"
+tauri-plugin-clipboard-manager = "2.3.2"

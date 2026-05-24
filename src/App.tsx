@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { Copy, ExternalLink, FolderPlus } from "lucide-react";
 import "./App.css";
 
 type AppStatus = {
@@ -20,19 +21,62 @@ type AppStatus = {
 function App() {
   const [status, setStatus] = useState<AppStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [selectedImportPath, setSelectedImportPath] = useState<string | null>(null);
 
   useEffect(() => {
     invoke<AppStatus>("get_app_status")
       .then(setStatus)
-      .catch((value) => {
-        if (typeof value === "object" && value && "message" in value) {
-          setError(String(value.message));
-          return;
-        }
-
-        setError(String(value));
-      });
+      .catch((value) => setError(invokeErrorMessage(value)));
   }, []);
+
+  async function handleChooseImportFolder() {
+    setError(null);
+    setNotice(null);
+
+    try {
+      const folder = await invoke<string | null>("choose_import_folder");
+      if (!folder) {
+        return;
+      }
+
+      setSelectedImportPath(folder);
+      setNotice("已选择导入文件夹");
+    } catch (value) {
+      setError(invokeErrorMessage(value));
+    }
+  }
+
+  async function handleCopyPath() {
+    if (!selectedImportPath) {
+      return;
+    }
+
+    setError(null);
+    setNotice(null);
+
+    try {
+      await invoke("copy_path_to_clipboard", { path: selectedImportPath });
+      setNotice("路径已复制");
+    } catch (value) {
+      setError(invokeErrorMessage(value));
+    }
+  }
+
+  async function handleOpenPath() {
+    if (!selectedImportPath) {
+      return;
+    }
+
+    setError(null);
+    setNotice(null);
+
+    try {
+      await invoke("open_path_in_file_manager", { path: selectedImportPath });
+    } catch (value) {
+      setError(invokeErrorMessage(value));
+    }
+  }
 
   return (
     <main className="app-shell">
@@ -52,7 +96,10 @@ function App() {
       <section className="workspace">
         <header className="toolbar">
           <input aria-label="搜索" placeholder="搜索合集、图片或标签" />
-          <button type="button">导入</button>
+          <button className="primary-action" type="button" onClick={handleChooseImportFolder}>
+            <FolderPlus size={16} aria-hidden="true" />
+            <span>导入</span>
+          </button>
         </header>
 
         <section className="content">
@@ -66,9 +113,37 @@ function App() {
             <p>选择本地图片文件夹后，PhotoView 会在本机建立索引。</p>
           </div>
 
+          {selectedImportPath ? (
+            <div className="selected-folder" aria-label="已选择的导入文件夹">
+              <span>{selectedImportPath}</span>
+              <div className="selected-folder-actions">
+                <button
+                  aria-label="复制路径"
+                  className="icon-button"
+                  title="复制路径"
+                  type="button"
+                  onClick={handleCopyPath}
+                >
+                  <Copy size={16} aria-hidden="true" />
+                </button>
+                <button
+                  aria-label="打开所在位置"
+                  className="icon-button"
+                  title="打开所在位置"
+                  type="button"
+                  onClick={handleOpenPath}
+                >
+                  <ExternalLink size={16} aria-hidden="true" />
+                </button>
+              </div>
+            </div>
+          ) : null}
+
           <footer className="status-bar">
             {error ? (
               <span className="status-error">{error}</span>
+            ) : notice ? (
+              <span className="status-notice">{notice}</span>
             ) : status ? (
               <>
                 <span>
@@ -85,6 +160,14 @@ function App() {
       </section>
     </main>
   );
+}
+
+function invokeErrorMessage(value: unknown): string {
+  if (typeof value === "object" && value && "message" in value) {
+    return String(value.message);
+  }
+
+  return String(value);
 }
 
 export default App;

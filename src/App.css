@@ -111,16 +111,22 @@ nav {
 }
 
 .toolbar button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
   border: 1px solid #174a7c;
   border-radius: 7px;
   background: #205493;
   color: #ffffff;
   padding: 9px 14px;
+  min-height: 40px;
 }
 
 .content {
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-rows: auto minmax(0, 1fr) auto auto;
+  gap: 14px;
   min-height: 0;
   padding: 20px;
 }
@@ -130,7 +136,6 @@ nav {
   align-items: baseline;
   justify-content: space-between;
   gap: 16px;
-  margin-bottom: 16px;
 }
 
 .section-heading h1 {
@@ -152,6 +157,48 @@ nav {
   min-height: 280px;
   padding: 28px;
   text-align: center;
+}
+
+.selected-folder {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid #d4dce6;
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 10px 12px;
+}
+
+.selected-folder span {
+  min-width: 0;
+  overflow: hidden;
+  color: #2f3a46;
+  font-size: 0.88rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.selected-folder-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.icon-button {
+  display: inline-grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  border: 1px solid #cfd7e2;
+  border-radius: 7px;
+  background: #f9fbfd;
+  color: #2f3a46;
+  padding: 0;
+}
+
+.icon-button:hover {
+  border-color: #8fa1b8;
+  background: #eef3f8;
 }
 
 .empty-state h2 {
@@ -177,6 +224,10 @@ nav {
   color: #a23434;
 }
 
+.status-notice {
+  color: #23704d;
+}
+
 @media (max-width: 720px) {
   .app-shell {
     grid-template-columns: 1fr;
@@ -193,5 +244,9 @@ nav {
 
   .nav-item {
     text-align: center;
+  }
+
+  .selected-folder {
+    grid-template-columns: 1fr;
   }
 }

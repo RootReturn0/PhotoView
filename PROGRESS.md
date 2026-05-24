@@ -3,8 +3,8 @@
 ## Current
 
 - 阶段：阶段 1，基础工程。
-- 正在做：应用初始化、应用数据目录和 SQLite schema migration 已完成。
-- 下一步：实现 collections、images、tags、settings 基础 CRUD，并补充文件夹选择、打开所在位置等系统 command。
+- 正在做：应用初始化、SQLite schema migration、文件夹选择和路径系统能力已完成。
+- 下一步：实现 collections、images、tags、settings 基础 CRUD，并继续推进文件夹导入与图片扫描。
 
 ## Done
 
@@ -15,6 +15,7 @@
 - 已明确目标为完成 `plan.md` 全部功能，阶段划分只控制实现顺序。
 - 已确定并初始化技术栈：Tauri 2、Rust 1.95.0、React 19、TypeScript、Vite、pnpm、SQLite/rusqlite。
 - 已安装基础依赖：Tauri dialog/fs/opener 插件、rusqlite、image、kamadak-exif、notify、trash、walkdir、sha2、uuid、chrono、zustand、react-virtual、lucide-react、clsx。
+- 已安装剪贴板依赖：`@tauri-apps/plugin-clipboard-manager`、`tauri-plugin-clipboard-manager`。
 - 已完成基础验证：`pnpm build` 通过，`cargo check` 通过，`cargo fmt --check` 通过。
 - 已配置应用标识 `com.dreamstronger.photoview`、产品名 `PhotoView`、主窗口 1200x800，并注册 dialog/fs/opener 插件。
 - 已新增 `docs/ARCHITECTURE.md`，锁定 Rust command/API、数据库、缩略图缓存、配置目录、后台任务和前端状态边界。
@@ -22,6 +23,7 @@
 - 已新增 Rust 基础模块：`app`、`commands`、`db`、`errors`、`paths`。
 - 已实现应用数据目录初始化、SQLite schema migration、默认设置写入和 `get_app_status` command。
 - 已替换模板首页为 PhotoView 应用骨架，可展示 schema、图片数、标签数和初始化错误。
+- 已实现 `choose_import_folder`、`open_path_in_file_manager`、`copy_text_to_clipboard`、`copy_path_to_clipboard` 系统 command，并在前端导入按钮中接入文件夹选择、复制路径和打开所在位置。
 - 已完成本轮验证：`pnpm build` 通过，`cargo test` 通过，`cargo fmt --check` 通过。
 
 ## Blocked
