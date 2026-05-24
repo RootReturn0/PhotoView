@@ -8,6 +8,25 @@
 - [ ] 每个功能完成时必须能通过人工验收或自动化测试验证，并记录已覆盖的平台、测试数据和限制条件。
 - [ ] 涉及删除、移动、合并、拆分、恢复等高风险操作时，必须有确认流程、失败提示和可追踪结果。
 
+## 测试数据
+
+- 基础 fixture 位置：`fixtures/photo-library-basic`。
+- 推荐导入 `collection-a`、`collection-b`、`duplicates`、`empty-collection` 四个子目录；需要错误状态时再导入或扫描 `invalid`。
+- `collection-a` 覆盖 jpg、png、gif、svg、4K jpg 和嵌套目录；`collection-b` 覆盖 bmp、ico、tiff、webp、avif；`duplicates` 覆盖 SHA256 完全重复样本。
+- `non-images` 用于确认非图片文件会被扫描器忽略；破坏性测试必须先复制 fixture 到临时目录，不直接修改原始 fixture。
+
+## 最近一次验收结果
+
+- 日期：2026-05-24。
+- 平台：macOS 本机；测试使用复制到系统临时目录的 `fixtures/photo-library-basic`，未修改原始 fixture，未提交图片。
+- 命令：`cargo test fixture_acceptance_core_flow -- --ignored --nocapture`。
+- 结果：通过，1 项 fixture 自动化验收测试通过，24 项普通 Rust 测试被过滤。
+- 覆盖数据：共导入 6 个 fixture 目录；支持格式图片 12 张；`collection-a` 5 张，`collection-b` 5 张，`duplicates` 2 张，`empty-collection` 0 张，`invalid` 0 张且产生 2 个坏图错误，`non-images` 0 张且无错误。
+- 覆盖格式：avif、bmp、gif、ico、jpeg、png、svg、tiff、webp；4K 样本 `large-4096x2304.jpg` 识别为 4096x2304。
+- 已验证链路：空库初始化、合集导入、重复导入更新、非图片忽略、坏图错误记录、元数据提取、缩略图生成和命中、查看器 WebP PNG 预览、SVG 源文件查看策略、缓存统计和清理、合集编辑/封面/收藏/评分/浏览统计、图片收藏/评分、标签创建和绑定、查询搜索、格式搜索、分辨率搜索、SHA256 重复检测、设置写入、单图重命名/复制/移动/删除、增量同步新增和缺失标记、数据库备份、JSON 导出、数据库恢复。
+- 观察结果：`checker-256.png` 与 `duplicates` 目录下两张图片内容相同，因此 SHA256 完全重复组包含至少这 3 张图片；重复检测符合“内容完全相同分到同组”的验收预期。
+- 未覆盖范围：本轮是 Rust/backend 自动化验收，不覆盖真实 Tauri 窗口中的人工 UI 操作、系统文件选择器/剪贴板/文件管理器、Windows/Linux 实机安装启动、高 DPI、多显示器、真实 1000 张导入性能计时、万级滚动帧率、合并/拆分合集和撤销等需要额外人工或专项测试的项目。
+
 ## 前置依赖
 
 - [ ] 数据库已建立 collections、images、tags、favorites、history、settings 等核心数据表；重启应用后合集、图片、标签、收藏、最近浏览和设置数据仍可读取。
