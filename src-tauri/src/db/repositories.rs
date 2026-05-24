@@ -3,8 +3,8 @@ use crate::{
     models::{
         CollectionDto, CreateCollectionRequest, CreateImageRequest, CreateTagRequest, ImageDto,
         ImportCollectionRequest, ImportCollectionResult, ImportErrorDto, ListImagesRequest,
-        SettingDto, TagDto, UpdateCollectionRequest, UpdateImageRequest, UpdateSettingRequest,
-        UpdateTagRequest,
+        SettingDto, TagDto, TaskDto, UpdateCollectionRequest, UpdateImageRequest,
+        UpdateSettingRequest, UpdateTagRequest,
     },
     scanner::{self, ScanCandidate},
 };
@@ -599,6 +599,200 @@ pub fn update_setting(conn: &Connection, request: UpdateSettingRequest) -> AppRe
     get_setting(conn, &key)?.ok_or_else(|| AppError::internal("setting was not saved"))
 }
 
+pub fn list_images_for_thumbnail_task(
+    conn: &Connection,
+    collection_id: Option<String>,
+) -> AppResult<Vec<ImageDto>> {
+    if let Some(collection_id) = collection_id {
+        let collection_id = require_text(collection_id, "合集 ID")?;
+        ensure_collection_exists(conn, &collection_id)?;
+        let mut stmt = conn.prepare(
+            "
+            SELECT id, collection_id, path, file_name, extension, format, size_bytes,
+                   width, height, created_at, modified_at, imported_at, updated_at,
+                   sha256, phash, rating, is_favorite, is_missing, last_viewed_at, view_count
+            FROM images
+            WHERE collection_id = ?1 AND is_missing = 0
+            ORDER BY file_name COLLATE NOCASE ASC
+            ",
+        )?;
+
+        return collect_rows(stmt.query_map(params![collection_id], image_from_row)?);
+    }
+
+    let mut stmt = conn.prepare(
+        "
+        SELECT id, collection_id, path, file_name, extension, format, size_bytes,
+               width, height, created_at, modified_at, imported_at, updated_at,
+               sha256, phash, rating, is_favorite, is_missing, last_viewed_at, view_count
+        FROM images
+        WHERE is_missing = 0
+        ORDER BY imported_at DESC, file_name COLLATE NOCASE ASC
+        ",
+    )?;
+
+    let rows = collect_rows(stmt.query_map([], image_from_row)?);
+    rows
+}
+
+pub fn create_task(conn: &Connection, kind: &str, total_count: i64) -> AppResult<TaskDto> {
+    let kind = require_text(kind.to_string(), "任务类型")?;
+    let total_count = validate_non_negative(total_count, "任务总数")?;
+    let id = Uuid::new_v4().to_string();
+    let now = now();
+
+    conn.execute(
+        "
+        INSERT INTO tasks (
+          id, kind, status, total_count, completed_count, failed_count, created_at, updated_at
+        )
+        VALUES (?1, ?2, 'queued', ?3, 0, 0, ?4, ?4)
+        ",
+        params![id, kind, total_count, now],
+    )?;
+
+    get_task(conn, &id)?.ok_or_else(|| AppError::internal("task was not saved"))
+}
+
+pub fn get_task(conn: &Connection, id: &str) -> AppResult<Option<TaskDto>> {
+    conn.query_row(
+        "
+        SELECT id, kind, status, total_count, completed_count, failed_count,
+               current_item, error_message, created_at, updated_at, finished_at
+        FROM tasks
+        WHERE id = ?1
+        ",
+        params![id],
+        task_from_row,
+    )
+    .optional()
+    .map_err(Into::into)
+}
+
+pub fn mark_task_running(conn: &Connection, id: &str) -> AppResult<()> {
+    let affected = conn.execute(
+        "
+        UPDATE tasks
+        SET status = 'running', updated_at = ?2
+        WHERE id = ?1
+        ",
+        params![id, now()],
+    )?;
+
+    ensure_affected(affected, "任务不存在")
+}
+
+pub fn update_task_progress(
+    conn: &Connection,
+    id: &str,
+    completed_count: i64,
+    failed_count: i64,
+    current_item: Option<String>,
+    error_message: Option<String>,
+) -> AppResult<()> {
+    let completed_count = validate_non_negative(completed_count, "任务完成数")?;
+    let failed_count = validate_non_negative(failed_count, "任务失败数")?;
+    let affected = conn.execute(
+        "
+        UPDATE tasks
+        SET completed_count = ?2,
+            failed_count = ?3,
+            current_item = ?4,
+            error_message = ?5,
+            updated_at = ?6
+        WHERE id = ?1
+        ",
+        params![
+            id,
+            completed_count,
+            failed_count,
+            current_item,
+            error_message,
+            now()
+        ],
+    )?;
+
+    ensure_affected(affected, "任务不存在")
+}
+
+pub fn finish_task(
+    conn: &Connection,
+    id: &str,
+    status: &str,
+    error_message: Option<String>,
+) -> AppResult<()> {
+    let status = require_text(status.to_string(), "任务状态")?;
+    let now = now();
+    let affected = conn.execute(
+        "
+        UPDATE tasks
+        SET status = ?2,
+            current_item = NULL,
+            error_message = ?3,
+            updated_at = ?4,
+            finished_at = ?4
+        WHERE id = ?1
+        ",
+        params![id, status, error_message, now],
+    )?;
+
+    ensure_affected(affected, "任务不存在")
+}
+
+pub struct ThumbnailCacheRecord<'a> {
+    pub image_id: &'a str,
+    pub source_mtime: &'a str,
+    pub source_size_bytes: i64,
+    pub width: i64,
+    pub height: i64,
+    pub format: &'a str,
+    pub cache_path: &'a str,
+    pub status: &'a str,
+}
+
+pub fn upsert_thumbnail_cache_record(
+    conn: &Connection,
+    record: ThumbnailCacheRecord<'_>,
+) -> AppResult<()> {
+    let id = Uuid::new_v4().to_string();
+    let now = now();
+
+    conn.execute(
+        "
+        INSERT INTO thumbnail_cache (
+          id, image_id, source_mtime, source_size_bytes, width, height,
+          format, cache_path, status, error_message, updated_at
+        )
+        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, NULL, ?10)
+        ON CONFLICT(image_id, source_mtime, source_size_bytes, width, height, format)
+        DO UPDATE SET
+          cache_path = excluded.cache_path,
+          status = excluded.status,
+          error_message = NULL,
+          updated_at = excluded.updated_at
+        ",
+        params![
+            id,
+            record.image_id,
+            record.source_mtime,
+            record.source_size_bytes,
+            record.width,
+            record.height,
+            record.format,
+            record.cache_path,
+            record.status,
+            now
+        ],
+    )?;
+
+    Ok(())
+}
+
+pub fn clear_thumbnail_cache_records(conn: &Connection) -> AppResult<()> {
+    conn.execute("DELETE FROM thumbnail_cache", [])?;
+    Ok(())
+}
+
 fn refresh_collection_stats(conn: &Connection, collection_id: &str) -> AppResult<()> {
     conn.execute(
         "
@@ -711,6 +905,22 @@ fn setting_from_row(row: &Row<'_>) -> rusqlite::Result<SettingDto> {
         key: row.get("key")?,
         value: row.get("value")?,
         updated_at: row.get("updated_at")?,
+    })
+}
+
+fn task_from_row(row: &Row<'_>) -> rusqlite::Result<TaskDto> {
+    Ok(TaskDto {
+        id: row.get("id")?,
+        kind: row.get("kind")?,
+        status: row.get("status")?,
+        total_count: row.get("total_count")?,
+        completed_count: row.get("completed_count")?,
+        failed_count: row.get("failed_count")?,
+        current_item: row.get("current_item")?,
+        error_message: row.get("error_message")?,
+        created_at: row.get("created_at")?,
+        updated_at: row.get("updated_at")?,
+        finished_at: row.get("finished_at")?,
     })
 }
 

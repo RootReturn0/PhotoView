@@ -3,8 +3,8 @@
 ## Current
 
 - 阶段：阶段 2，核心浏览体验。
-- 正在做：基础合集浏览界面、合集详情虚拟列表、缩略图缓存模块和缩略图显示已完成。
-- 下一步：实现缩略图任务队列、缓存统计/清理接口和图片网格交互完善。
+- 正在做：阶段 2 核心浏览体验主体已完成，剩余图片格式兼容测试集逐项验收。
+- 下一步：补齐 jpg/png/gif/bmp/ico/tiff/webp/avif/svg 真实文件打开验收，并开始阶段 3 管理能力。
 
 ## Done
 
@@ -34,6 +34,12 @@
 - 已实现合集详情页骨架和图片虚拟列表，可加载 `list_images` 并展示文件名、路径、格式、尺寸和大小。
 - 已新增 `thumbs` 模块，支持 WebP 缩略图生成、稳定分桶缓存路径、sidecar 元数据命中、坏图/SVG/大图错误处理。
 - 已实现 `get_thumbnail` command，启用 Tauri asset protocol，并在图片虚拟列表可见范围内按需生成和展示缩略图。
+- 已实现缩略图后台任务队列：`enqueue_thumbnail_generation` 创建任务、后台线程逐项生成缩略图、`get_task` 查询进度，并写入 `tasks` 与 `thumbnail_cache` 表。
+- 已实现缩略图缓存统计和清理接口：`get_thumbnail_cache_stats`、`clear_thumbnail_cache`，并补充缓存统计/清理单元测试。
+- 已为已导入合集目录注册 Tauri asset protocol 授权，查看器可通过 `convertFileSrc(image.path)` 加载原图；重启后会重新授权现有合集目录。
+- 已实现图片查看器 overlay：双击/Enter 打开，支持上一张/下一张、左右键、Esc 关闭、适应窗口、实际大小、缩放、旋转、全屏、2s 幻灯片和信息面板。
+- 已实现查看器图片加载状态和解码失败占位。
+- 已完成本轮验证：`pnpm build` 通过，`cargo fmt --check` 通过，`cargo test` 17 项通过，`pnpm tauri build --debug --bundles app` 通过，Playwright 桌面/移动空态冒烟无横向溢出。
 
 ## Blocked
 

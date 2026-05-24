@@ -3,14 +3,19 @@ use crate::{
     db::repositories,
     errors::{AppError, AppResult},
     models::{
-        CollectionDto, CreateCollectionRequest, CreateImageRequest, CreateTagRequest, ImageDto,
-        ImportCollectionRequest, ImportCollectionResult, ListImagesRequest, SettingDto, TagDto,
-        ThumbnailDto, UpdateCollectionRequest, UpdateImageRequest, UpdateSettingRequest,
+        ClearThumbnailCacheResult, CollectionDto, CreateCollectionRequest, CreateImageRequest,
+        CreateTagRequest, ImageDto, ImportCollectionRequest, ImportCollectionResult,
+        ListImagesRequest, SettingDto, TagDto, TaskDto, ThumbnailCacheStatsDto, ThumbnailDto,
+        ThumbnailTaskRequest, UpdateCollectionRequest, UpdateImageRequest, UpdateSettingRequest,
         UpdateTagRequest,
     },
-    thumbs::{get_or_create_thumbnail, read_source_metadata, ThumbnailRequest},
+    thumbs::{
+        clear_thumbnail_cache as clear_thumbnail_cache_files, collect_thumbnail_cache_stats,
+        get_or_create_thumbnail, read_source_metadata, ThumbnailCacheStatus, ThumbnailRequest,
+    },
 };
-use tauri::State;
+use std::path::Path;
+use tauri::{AppHandle, Manager, State};
 
 #[tauri::command]
 pub fn list_collections(state: State<'_, AppState>) -> AppResult<Vec<CollectionDto>> {
@@ -32,10 +37,18 @@ pub fn create_collection(
 
 #[tauri::command]
 pub fn import_collection(
+    app: AppHandle,
     state: State<'_, AppState>,
     request: ImportCollectionRequest,
 ) -> AppResult<ImportCollectionResult> {
-    state.with_db_mut(|db| repositories::import_collection(db, request))
+    let result = state.with_db_mut(|db| repositories::import_collection(db, request))?;
+    let collection_path = Path::new(&result.collection.path);
+    if collection_path.is_dir() {
+        app.asset_protocol_scope()
+            .allow_directory(collection_path, true)?;
+    }
+
+    Ok(result)
 }
 
 #[tauri::command]
@@ -145,21 +158,102 @@ pub fn get_thumbnail(
         &state.paths().thumbnails_dir,
         &image.id,
         source.source_size_bytes,
-        source.source_mtime,
+        source.source_mtime.clone(),
         target_size.unwrap_or(192),
     );
     let thumbnail = get_or_create_thumbnail(&request)
         .map_err(|value| AppError::new("thumbnail_error", value.to_string()))?;
+    let cache_path = thumbnail.cache_path.display().to_string();
+    state.with_db(|db| {
+        repositories::upsert_thumbnail_cache_record(
+            db,
+            repositories::ThumbnailCacheRecord {
+                image_id: &image.id,
+                source_mtime: &source.source_mtime,
+                source_size_bytes: i64::try_from(source.source_size_bytes)
+                    .map_err(|_| AppError::new("validation_error", "源文件大小超出可支持范围"))?,
+                width: i64::from(thumbnail.width),
+                height: i64::from(thumbnail.height),
+                format: thumbnail.format.as_str(),
+                cache_path: &cache_path,
+                status: match thumbnail.status {
+                    ThumbnailCacheStatus::Hit => "hit",
+                    ThumbnailCacheStatus::Miss => "miss",
+                },
+            },
+        )
+    })?;
 
     Ok(ThumbnailDto {
         image_id: image.id,
-        cache_path: thumbnail.cache_path.display().to_string(),
-        url: thumbnail.cache_path.display().to_string(),
+        cache_path: cache_path.clone(),
+        url: cache_path,
         width: thumbnail.width,
         height: thumbnail.height,
         status: match thumbnail.status {
-            crate::thumbs::ThumbnailCacheStatus::Hit => "hit".to_string(),
-            crate::thumbs::ThumbnailCacheStatus::Miss => "miss".to_string(),
+            ThumbnailCacheStatus::Hit => "hit".to_string(),
+            ThumbnailCacheStatus::Miss => "miss".to_string(),
         },
+    })
+}
+
+#[tauri::command]
+pub fn enqueue_thumbnail_generation(
+    state: State<'_, AppState>,
+    request: ThumbnailTaskRequest,
+) -> AppResult<TaskDto> {
+    let target_size = request.target_size.unwrap_or(192);
+    if target_size == 0 {
+        return Err(AppError::new("validation_error", "缩略图尺寸必须大于 0"));
+    }
+
+    let images = state
+        .with_db(|db| repositories::list_images_for_thumbnail_task(db, request.collection_id))?;
+    let total_count = i64::try_from(images.len())
+        .map_err(|_| AppError::new("validation_error", "图片数量超出可支持范围"))?;
+    let task =
+        state.with_db(|db| repositories::create_task(db, "thumbnail_generation", total_count))?;
+
+    crate::tasks::spawn_thumbnail_generation_task(
+        task.id.clone(),
+        state.paths().database_path.clone(),
+        state.paths().thumbnails_dir.clone(),
+        images,
+        target_size,
+    );
+
+    Ok(task)
+}
+
+#[tauri::command]
+pub fn get_task(state: State<'_, AppState>, id: String) -> AppResult<TaskDto> {
+    state
+        .with_db(|db| repositories::get_task(db, &id))?
+        .ok_or_else(|| AppError::new("not_found", "任务不存在"))
+}
+
+#[tauri::command]
+pub fn get_thumbnail_cache_stats(state: State<'_, AppState>) -> AppResult<ThumbnailCacheStatsDto> {
+    let stats = collect_thumbnail_cache_stats(&state.paths().thumbnails_dir)
+        .map_err(|value| AppError::new("thumbnail_error", value.to_string()))?;
+
+    Ok(ThumbnailCacheStatsDto {
+        root_path: state.paths().thumbnails_dir.display().to_string(),
+        file_count: stats.file_count,
+        metadata_file_count: stats.metadata_file_count,
+        total_bytes: stats.total_bytes,
+    })
+}
+
+#[tauri::command]
+pub fn clear_thumbnail_cache(state: State<'_, AppState>) -> AppResult<ClearThumbnailCacheResult> {
+    let result = clear_thumbnail_cache_files(&state.paths().thumbnails_dir)
+        .map_err(|value| AppError::new("thumbnail_error", value.to_string()))?;
+    state.with_db(repositories::clear_thumbnail_cache_records)?;
+
+    Ok(ClearThumbnailCacheResult {
+        deleted_file_count: result.deleted_file_count,
+        deleted_dir_count: result.deleted_dir_count,
+        freed_bytes: result.freed_bytes,
     })
 }

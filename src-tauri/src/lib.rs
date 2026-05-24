@@ -5,11 +5,13 @@ mod errors;
 mod models;
 mod paths;
 pub mod scanner;
+mod tasks;
 pub mod thumbs;
 
 use commands::data::{
-    create_collection, create_image, create_tag, delete_collection_record, delete_image_record,
-    delete_tag, get_collection, get_image, get_setting, get_settings, get_tag, get_thumbnail,
+    clear_thumbnail_cache, create_collection, create_image, create_tag, delete_collection_record,
+    delete_image_record, delete_tag, enqueue_thumbnail_generation, get_collection, get_image,
+    get_setting, get_settings, get_tag, get_task, get_thumbnail, get_thumbnail_cache_stats,
     import_collection, list_collections, list_images, list_tags, update_collection, update_image,
     update_setting, update_tag,
 };
@@ -17,6 +19,7 @@ use commands::system::{
     choose_import_folder, copy_path_to_clipboard, copy_text_to_clipboard, get_app_status,
     open_path_in_file_manager,
 };
+use std::path::Path;
 use tauri::{
     menu::{AboutMetadata, Menu, MenuItem, PredefinedMenuItem, Submenu},
     AppHandle, Emitter, Manager, Runtime,
@@ -41,6 +44,13 @@ pub fn run() {
             let state = app::AppState::initialize(app.handle())?;
             app.asset_protocol_scope()
                 .allow_directory(&state.paths().thumbnails_dir, true)?;
+            for collection in state.with_db(db::repositories::list_collections)? {
+                let collection_path = Path::new(&collection.path);
+                if collection_path.is_dir() {
+                    app.asset_protocol_scope()
+                        .allow_directory(collection_path, true)?;
+                }
+            }
             app.manage(state);
             Ok(())
         })
@@ -69,7 +79,11 @@ pub fn run() {
             get_settings,
             get_setting,
             update_setting,
-            get_thumbnail
+            get_thumbnail,
+            enqueue_thumbnail_generation,
+            get_task,
+            get_thumbnail_cache_stats,
+            clear_thumbnail_cache
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

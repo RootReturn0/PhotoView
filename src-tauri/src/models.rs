@@ -178,3 +178,43 @@ pub struct ThumbnailDto {
     pub height: u32,
     pub status: String,
 }
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ThumbnailTaskRequest {
+    pub collection_id: Option<String>,
+    pub target_size: Option<u32>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskDto {
+    pub id: String,
+    pub kind: String,
+    pub status: String,
+    pub total_count: i64,
+    pub completed_count: i64,
+    pub failed_count: i64,
+    pub current_item: Option<String>,
+    pub error_message: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+    pub finished_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ThumbnailCacheStatsDto {
+    pub root_path: String,
+    pub file_count: u64,
+    pub metadata_file_count: u64,
+    pub total_bytes: u64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClearThumbnailCacheResult {
+    pub deleted_file_count: u64,
+    pub deleted_dir_count: u64,
+    pub freed_bytes: u64,
+}

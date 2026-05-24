@@ -104,6 +104,9 @@ pub enum ThumbnailErrorKind {
     Encode,
     WriteCache,
     WriteCacheMetadata,
+    ReadCacheDirectory,
+    RemoveCache,
+    CacheRootNotDirectory,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -158,6 +161,22 @@ impl Error for ThumbnailError {}
 pub struct ThumbnailSourceMetadata {
     pub source_size_bytes: u64,
     pub source_mtime: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ThumbnailCacheStats {
+    pub file_count: u64,
+    pub metadata_file_count: u64,
+    pub total_bytes: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ThumbnailCacheClearResult {
+    pub deleted_file_count: u64,
+    pub deleted_dir_count: u64,
+    pub freed_bytes: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -296,6 +315,47 @@ pub fn read_source_metadata(
     })
 }
 
+pub fn collect_thumbnail_cache_stats(
+    cache_root: impl AsRef<Path>,
+) -> ThumbnailResultValue<ThumbnailCacheStats> {
+    let cache_root = cache_root.as_ref();
+    if !cache_root.exists() {
+        return Ok(ThumbnailCacheStats {
+            file_count: 0,
+            metadata_file_count: 0,
+            total_bytes: 0,
+        });
+    }
+
+    ensure_cache_root_directory(cache_root)?;
+    let mut stats = ThumbnailCacheStats {
+        file_count: 0,
+        metadata_file_count: 0,
+        total_bytes: 0,
+    };
+    collect_cache_stats_recursive(cache_root, &mut stats)?;
+    Ok(stats)
+}
+
+pub fn clear_thumbnail_cache(
+    cache_root: impl AsRef<Path>,
+) -> ThumbnailResultValue<ThumbnailCacheClearResult> {
+    let cache_root = cache_root.as_ref();
+    if !cache_root.exists() {
+        fs::create_dir_all(cache_root).map_err(|error| {
+            ThumbnailError::with_path(ThumbnailErrorKind::CreateCacheDirectory, cache_root, error)
+        })?;
+        return Ok(ThumbnailCacheClearResult {
+            deleted_file_count: 0,
+            deleted_dir_count: 0,
+            freed_bytes: 0,
+        });
+    }
+
+    ensure_cache_root_directory(cache_root)?;
+    clear_cache_directory_contents(cache_root)
+}
+
 pub fn system_time_to_rfc3339(value: SystemTime) -> String {
     DateTime::<Utc>::from(value).to_rfc3339()
 }
@@ -398,6 +458,118 @@ fn ensure_regular_source_file(source_path: &Path) -> ThumbnailResultValue<()> {
     }
 
     Ok(())
+}
+
+fn ensure_cache_root_directory(cache_root: &Path) -> ThumbnailResultValue<()> {
+    let metadata = fs::symlink_metadata(cache_root).map_err(|error| {
+        ThumbnailError::with_path(ThumbnailErrorKind::ReadCacheDirectory, cache_root, error)
+    })?;
+
+    if metadata.file_type().is_dir() {
+        Ok(())
+    } else {
+        Err(ThumbnailError::with_path(
+            ThumbnailErrorKind::CacheRootNotDirectory,
+            cache_root,
+            "thumbnail cache root must be a directory",
+        ))
+    }
+}
+
+fn collect_cache_stats_recursive(
+    directory: &Path,
+    stats: &mut ThumbnailCacheStats,
+) -> ThumbnailResultValue<()> {
+    let entries = fs::read_dir(directory).map_err(|error| {
+        ThumbnailError::with_path(ThumbnailErrorKind::ReadCacheDirectory, directory, error)
+    })?;
+
+    for entry in entries {
+        let entry = entry.map_err(|error| {
+            ThumbnailError::with_path(ThumbnailErrorKind::ReadCacheDirectory, directory, error)
+        })?;
+        let path = entry.path();
+        let file_type = entry.file_type().map_err(|error| {
+            ThumbnailError::with_path(ThumbnailErrorKind::ReadCacheDirectory, &path, error)
+        })?;
+
+        if file_type.is_symlink() {
+            continue;
+        }
+
+        if file_type.is_dir() {
+            collect_cache_stats_recursive(&path, stats)?;
+            continue;
+        }
+
+        if file_type.is_file() {
+            let metadata = entry.metadata().map_err(|error| {
+                ThumbnailError::with_path(ThumbnailErrorKind::ReadCacheDirectory, &path, error)
+            })?;
+            stats.file_count += 1;
+            stats.total_bytes += metadata.len();
+            if path.extension().and_then(|value| value.to_str()) == Some("json") {
+                stats.metadata_file_count += 1;
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn clear_cache_directory_contents(
+    directory: &Path,
+) -> ThumbnailResultValue<ThumbnailCacheClearResult> {
+    let mut result = ThumbnailCacheClearResult {
+        deleted_file_count: 0,
+        deleted_dir_count: 0,
+        freed_bytes: 0,
+    };
+    let entries = fs::read_dir(directory).map_err(|error| {
+        ThumbnailError::with_path(ThumbnailErrorKind::ReadCacheDirectory, directory, error)
+    })?;
+
+    for entry in entries {
+        let entry = entry.map_err(|error| {
+            ThumbnailError::with_path(ThumbnailErrorKind::ReadCacheDirectory, directory, error)
+        })?;
+        let path = entry.path();
+        let file_type = entry.file_type().map_err(|error| {
+            ThumbnailError::with_path(ThumbnailErrorKind::ReadCacheDirectory, &path, error)
+        })?;
+
+        if file_type.is_symlink() {
+            continue;
+        }
+
+        if file_type.is_dir() {
+            let child = clear_cache_directory_contents(&path)?;
+            result.deleted_file_count += child.deleted_file_count;
+            result.deleted_dir_count += child.deleted_dir_count;
+            result.freed_bytes += child.freed_bytes;
+            fs::remove_dir(&path).map_err(|error| {
+                ThumbnailError::with_path(ThumbnailErrorKind::RemoveCache, &path, error)
+            })?;
+            result.deleted_dir_count += 1;
+            continue;
+        }
+
+        if file_type.is_file() {
+            let size = entry
+                .metadata()
+                .map_err(|error| {
+                    ThumbnailError::with_path(ThumbnailErrorKind::ReadCacheDirectory, &path, error)
+                })?
+                .len();
+            fs::remove_file(&path).map_err(|error| {
+                ThumbnailError::with_path(ThumbnailErrorKind::RemoveCache, &path, error)
+            })?;
+            result.deleted_file_count += 1;
+            result.freed_bytes += size;
+        }
+    }
+
+    Ok(result)
 }
 
 fn read_source_dimensions(source_path: &Path) -> ThumbnailResultValue<(u32, u32)> {
@@ -775,6 +947,38 @@ mod tests {
         let error = thumbnail_cache_path("/cache-root", "image", 0, ThumbnailOutputFormat::Webp)
             .expect_err("zero target size should be rejected");
         assert_eq!(error.kind, ThumbnailErrorKind::InvalidTargetSize);
+    }
+
+    #[test]
+    fn reports_and_clears_cache_size() {
+        let directory = TestDirectory::new("stats");
+        let source_path = directory.join("source.png");
+        let cache_root = directory.join("cache");
+        write_png(&source_path, 96, 48);
+
+        let source = read_source_metadata(&source_path).expect("source metadata should read");
+        let request = ThumbnailRequest::new(
+            &source_path,
+            &cache_root,
+            "image-0006",
+            source.source_size_bytes,
+            source.source_mtime,
+            64,
+        );
+        let thumbnail = get_or_create_thumbnail(&request).expect("thumbnail should be generated");
+        let metadata_path = cache_metadata_path(&thumbnail.cache_path);
+
+        let stats = collect_thumbnail_cache_stats(&cache_root).expect("stats should be collected");
+        assert_eq!(stats.file_count, 2);
+        assert_eq!(stats.metadata_file_count, 1);
+        assert!(stats.total_bytes > 0);
+
+        let cleared = clear_thumbnail_cache(&cache_root).expect("cache should clear");
+        assert_eq!(cleared.deleted_file_count, 2);
+        assert!(cleared.deleted_dir_count >= 2);
+        assert!(cleared.freed_bytes >= stats.total_bytes);
+        assert!(!thumbnail.cache_path.exists());
+        assert!(!metadata_path.exists());
     }
 
     fn write_png(path: &Path, width: u32, height: u32) {

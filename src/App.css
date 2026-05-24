@@ -389,6 +389,16 @@ nav {
   padding: 10px 12px;
 }
 
+.image-row[role="button"] {
+  cursor: pointer;
+}
+
+.image-row[role="button"]:hover,
+.image-row[role="button"]:focus-visible {
+  background: #f6f9fc;
+  outline: 0;
+}
+
 .image-thumb-placeholder {
   display: grid;
   width: 52px;
@@ -506,6 +516,197 @@ nav {
   color: #23704d;
 }
 
+.viewer-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  background: #111820;
+  color: #ffffff;
+}
+
+.viewer-toolbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  border-bottom: 1px solid rgb(255 255 255 / 12%);
+  background: rgb(17 24 32 / 94%);
+  padding: 10px 14px;
+}
+
+.viewer-title {
+  min-width: 0;
+}
+
+.viewer-title strong,
+.viewer-title span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.viewer-title strong {
+  font-size: 0.95rem;
+}
+
+.viewer-title span {
+  color: #b7c2cf;
+  font-size: 0.78rem;
+}
+
+.viewer-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.viewer-controls button {
+  display: inline-grid;
+  min-width: 34px;
+  height: 34px;
+  place-items: center;
+  border: 1px solid rgb(255 255 255 / 16%);
+  border-radius: 7px;
+  background: rgb(255 255 255 / 8%);
+  color: #ffffff;
+  padding: 0 9px;
+}
+
+.viewer-controls button:hover {
+  background: rgb(255 255 255 / 16%);
+}
+
+.viewer-zoom {
+  min-width: 48px;
+  color: #d5dce5;
+  font-size: 0.8rem;
+  text-align: center;
+}
+
+.viewer-stage {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  min-height: 0;
+}
+
+.viewer-stage.with-info {
+  grid-template-columns: minmax(0, 1fr) 280px;
+}
+
+.viewer-canvas {
+  position: relative;
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+  place-items: center;
+  overflow: auto;
+  padding: 56px 72px;
+}
+
+.viewer-canvas img {
+  display: block;
+  opacity: 1;
+  transform-origin: center;
+  transition:
+    opacity 120ms ease,
+    transform 120ms ease;
+}
+
+.viewer-canvas img.fit {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+.viewer-canvas img.actual {
+  max-width: none;
+  max-height: none;
+}
+
+.viewer-placeholder {
+  position: absolute;
+  display: grid;
+  min-width: 180px;
+  min-height: 92px;
+  place-items: center;
+  border: 1px dashed rgb(255 255 255 / 22%);
+  border-radius: 8px;
+  background: rgb(255 255 255 / 7%);
+  color: #d5dce5;
+  padding: 18px;
+  text-align: center;
+}
+
+.viewer-placeholder.error {
+  border-color: rgb(232 144 144 / 45%);
+  color: #ffb8b8;
+}
+
+.viewer-info {
+  min-width: 0;
+  border-left: 1px solid rgb(255 255 255 / 12%);
+  background: #18212b;
+  padding: 18px;
+}
+
+.viewer-info h2 {
+  margin: 0 0 14px;
+  font-size: 1rem;
+}
+
+.viewer-info dl {
+  display: grid;
+  gap: 14px;
+  margin: 0;
+}
+
+.viewer-info div {
+  min-width: 0;
+}
+
+.viewer-info dt {
+  color: #9faec0;
+  font-size: 0.74rem;
+}
+
+.viewer-info dd {
+  overflow-wrap: anywhere;
+  margin: 3px 0 0;
+  color: #f4f7fa;
+  font-size: 0.86rem;
+}
+
+.viewer-nav {
+  position: fixed;
+  top: 50%;
+  z-index: 21;
+  display: grid;
+  width: 44px;
+  height: 56px;
+  place-items: center;
+  border: 1px solid rgb(255 255 255 / 14%);
+  border-radius: 8px;
+  background: rgb(17 24 32 / 72%);
+  color: #ffffff;
+  padding: 0;
+  transform: translateY(-50%);
+}
+
+.viewer-nav:hover {
+  background: rgb(255 255 255 / 16%);
+}
+
+.viewer-nav.previous {
+  left: 14px;
+}
+
+.viewer-nav.next {
+  right: 14px;
+}
+
 @media (max-width: 720px) {
   .app-shell {
     grid-template-columns: 1fr;
@@ -551,5 +752,43 @@ nav {
   .image-row-meta {
     grid-column: 2;
     justify-content: flex-start;
+  }
+
+  .viewer-toolbar {
+    grid-template-columns: 1fr;
+  }
+
+  .viewer-controls {
+    overflow-x: auto;
+    padding-bottom: 2px;
+  }
+
+  .viewer-stage.with-info {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(0, 1fr) auto;
+  }
+
+  .viewer-canvas {
+    padding: 54px 18px;
+  }
+
+  .viewer-info {
+    max-height: 34vh;
+    overflow: auto;
+    border-top: 1px solid rgb(255 255 255 / 12%);
+    border-left: 0;
+  }
+
+  .viewer-nav {
+    width: 38px;
+    height: 48px;
+  }
+
+  .viewer-nav.previous {
+    left: 8px;
+  }
+
+  .viewer-nav.next {
+    right: 8px;
   }
 }

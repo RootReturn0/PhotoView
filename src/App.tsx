@@ -3,14 +3,24 @@ import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import {
   ArrowLeft,
+  ChevronLeft,
+  ChevronRight,
   Copy,
   ExternalLink,
   FileImage,
   FolderPlus,
   Grid2X2,
   Images,
+  Info,
   List,
+  Maximize2,
+  Pause,
+  Play,
+  RotateCw,
   Star,
+  X,
+  ZoomIn,
+  ZoomOut,
 } from "lucide-react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import "./App.css";
@@ -84,6 +94,9 @@ type Thumbnail = {
   status: string;
 };
 
+type ViewerFitMode = "fit" | "actual";
+type ImageLoadState = "loading" | "loaded" | "error";
+
 function App() {
   const [status, setStatus] = useState<AppStatus | null>(null);
   const [collections, setCollections] = useState<Collection[]>([]);
@@ -100,14 +113,24 @@ function App() {
   const [query, setQuery] = useState("");
   const [sortKey, setSortKey] = useState<CollectionSortKey>("imported");
   const [viewMode, setViewMode] = useState<CollectionViewMode>("grid");
+  const [viewerIndex, setViewerIndex] = useState<number | null>(null);
+  const [viewerFitMode, setViewerFitMode] = useState<ViewerFitMode>("fit");
+  const [viewerZoom, setViewerZoom] = useState(1);
+  const [viewerRotation, setViewerRotation] = useState(0);
+  const [viewerImageState, setViewerImageState] = useState<ImageLoadState>("loading");
+  const [isSlideshowActive, setIsSlideshowActive] = useState(false);
+  const [isInfoPanelOpen, setIsInfoPanelOpen] = useState(true);
   const importInFlight = useRef(false);
   const thumbnailRequests = useRef(new Set<string>());
   const imageListRef = useRef<HTMLDivElement | null>(null);
+  const viewerRef = useRef<HTMLDivElement | null>(null);
 
   const selectedCollection = useMemo(
     () => collections.find((collection) => collection.id === selectedCollectionId) ?? null,
     [collections, selectedCollectionId],
   );
+
+  const activeImage = viewerIndex === null ? null : images[viewerIndex] ?? null;
 
   const visibleCollections = useMemo(() => {
     const normalizedQuery = query.trim().toLocaleLowerCase();
@@ -136,10 +159,12 @@ function App() {
 
   useEffect(() => {
     if (selectedCollectionId) {
+      closeViewer();
       void refreshImages(selectedCollectionId);
       return;
     }
 
+    closeViewer();
     setImages([]);
     setThumbnails({});
     setThumbnailErrors({});
@@ -184,6 +209,54 @@ function App() {
       unlisten?.();
     };
   }, []);
+
+  useEffect(() => {
+    if (!activeImage) {
+      return;
+    }
+
+    setViewerImageState("loading");
+  }, [activeImage?.id]);
+
+  useEffect(() => {
+    if (!activeImage) {
+      return;
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeViewer();
+        return;
+      }
+
+      if (event.key === "ArrowLeft") {
+        event.preventDefault();
+        showPreviousImage();
+        return;
+      }
+
+      if (event.key === "ArrowRight") {
+        event.preventDefault();
+        showNextImage();
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [activeImage, images.length]);
+
+  useEffect(() => {
+    if (!isSlideshowActive || !activeImage || images.length <= 1) {
+      return;
+    }
+
+    const timer = window.setInterval(() => {
+      showNextImage();
+    }, 2000);
+
+    return () => window.clearInterval(timer);
+  }, [activeImage, images.length, isSlideshowActive]);
 
   async function refreshAppData() {
     await Promise.all([refreshStatus(), refreshCollections()]);
@@ -359,6 +432,76 @@ function App() {
     setError(null);
   }
 
+  function openViewer(index: number) {
+    if (!images[index]) {
+      return;
+    }
+
+    setViewerIndex(index);
+    setViewerFitMode("fit");
+    setViewerZoom(1);
+    setViewerRotation(0);
+    setViewerImageState("loading");
+    setIsSlideshowActive(false);
+    setIsInfoPanelOpen(true);
+  }
+
+  function closeViewer() {
+    setViewerIndex(null);
+    setIsSlideshowActive(false);
+  }
+
+  function showPreviousImage() {
+    setViewerIndex((current) => {
+      if (current === null || images.length === 0) {
+        return current;
+      }
+
+      return current === 0 ? images.length - 1 : current - 1;
+    });
+  }
+
+  function showNextImage() {
+    setViewerIndex((current) => {
+      if (current === null || images.length === 0) {
+        return current;
+      }
+
+      return current === images.length - 1 ? 0 : current + 1;
+    });
+  }
+
+  function resetViewerTransform(mode: ViewerFitMode) {
+    setViewerFitMode(mode);
+    setViewerZoom(1);
+  }
+
+  function changeViewerZoom(delta: number) {
+    setViewerFitMode("actual");
+    setViewerZoom((current) => clamp(Number((current + delta).toFixed(2)), 0.25, 4));
+  }
+
+  function rotateViewer() {
+    setViewerRotation((current) => (current + 90) % 360);
+  }
+
+  async function toggleFullscreen() {
+    const element = viewerRef.current;
+    if (!element) {
+      return;
+    }
+
+    try {
+      if (document.fullscreenElement) {
+        await document.exitFullscreen();
+      } else {
+        await element.requestFullscreen();
+      }
+    } catch (value) {
+      setError(invokeErrorMessage(value));
+    }
+  }
+
   return (
     <main className="app-shell">
       <aside className="sidebar" aria-label="PhotoView navigation">
@@ -442,7 +585,15 @@ function App() {
                         <article
                           className="image-row"
                           key={image.id}
+                          role="button"
+                          tabIndex={0}
                           style={{ transform: `translateY(${virtualItem.start}px)` }}
+                          onDoubleClick={() => openViewer(virtualItem.index)}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter") {
+                              openViewer(virtualItem.index);
+                            }
+                          }}
                         >
                           <div className="image-thumb-placeholder">
                             {thumbnails[image.id] ? (
@@ -646,6 +797,139 @@ function App() {
           </footer>
         </section>
       </section>
+
+      {activeImage ? (
+        <section
+          aria-label="图片查看器"
+          aria-modal="true"
+          className="viewer-overlay"
+          ref={viewerRef}
+          role="dialog"
+        >
+          <header className="viewer-toolbar">
+            <div className="viewer-title">
+              <strong>{activeImage.fileName}</strong>
+              <span>
+                {(viewerIndex ?? 0) + 1}/{images.length}
+              </span>
+            </div>
+            <div className="viewer-controls" aria-label="查看器工具栏">
+              <button type="button" onClick={() => resetViewerTransform("fit")}>
+                适应
+              </button>
+              <button type="button" onClick={() => resetViewerTransform("actual")}>
+                1:1
+              </button>
+              <button aria-label="缩小" title="缩小" type="button" onClick={() => changeViewerZoom(-0.25)}>
+                <ZoomOut size={16} aria-hidden="true" />
+              </button>
+              <span className="viewer-zoom">{Math.round(viewerZoom * 100)}%</span>
+              <button aria-label="放大" title="放大" type="button" onClick={() => changeViewerZoom(0.25)}>
+                <ZoomIn size={16} aria-hidden="true" />
+              </button>
+              <button aria-label="旋转 90 度" title="旋转 90 度" type="button" onClick={rotateViewer}>
+                <RotateCw size={16} aria-hidden="true" />
+              </button>
+              <button aria-label="全屏" title="全屏" type="button" onClick={() => void toggleFullscreen()}>
+                <Maximize2 size={16} aria-hidden="true" />
+              </button>
+              <button
+                aria-label={isSlideshowActive ? "暂停幻灯片" : "开始幻灯片"}
+                title={isSlideshowActive ? "暂停幻灯片" : "开始幻灯片"}
+                type="button"
+                onClick={() => setIsSlideshowActive((current) => !current)}
+              >
+                {isSlideshowActive ? (
+                  <Pause size={16} aria-hidden="true" />
+                ) : (
+                  <Play size={16} aria-hidden="true" />
+                )}
+              </button>
+              <button
+                aria-label="图片信息"
+                title="图片信息"
+                type="button"
+                onClick={() => setIsInfoPanelOpen((current) => !current)}
+              >
+                <Info size={16} aria-hidden="true" />
+              </button>
+              <button aria-label="关闭查看器" title="关闭查看器" type="button" onClick={closeViewer}>
+                <X size={16} aria-hidden="true" />
+              </button>
+            </div>
+          </header>
+
+          <button
+            aria-label="上一张"
+            className="viewer-nav previous"
+            title="上一张"
+            type="button"
+            onClick={showPreviousImage}
+          >
+            <ChevronLeft size={28} aria-hidden="true" />
+          </button>
+
+          <div className={`viewer-stage ${isInfoPanelOpen ? "with-info" : ""}`}>
+            <div className="viewer-canvas">
+              {viewerImageState === "loading" ? (
+                <div className="viewer-placeholder">正在加载图片</div>
+              ) : null}
+              {viewerImageState === "error" ? (
+                <div className="viewer-placeholder error">图片解码失败</div>
+              ) : null}
+              <img
+                alt={activeImage.fileName}
+                className={viewerFitMode === "fit" ? "fit" : "actual"}
+                src={convertImagePath(activeImage.path)}
+                style={{
+                  opacity: viewerImageState === "loaded" ? 1 : 0,
+                  transform: `rotate(${viewerRotation}deg) scale(${viewerFitMode === "fit" ? 1 : viewerZoom})`,
+                }}
+                onError={() => setViewerImageState("error")}
+                onLoad={() => setViewerImageState("loaded")}
+              />
+            </div>
+
+            {isInfoPanelOpen ? (
+              <aside className="viewer-info" aria-label="图片信息">
+                <h2>信息</h2>
+                <dl>
+                  <div>
+                    <dt>格式</dt>
+                    <dd>{activeImage.format || activeImage.extension || "未知"}</dd>
+                  </div>
+                  <div>
+                    <dt>尺寸</dt>
+                    <dd>
+                      {activeImage.width && activeImage.height
+                        ? `${activeImage.width} x ${activeImage.height}`
+                        : "未知"}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>大小</dt>
+                    <dd>{formatBytes(activeImage.sizeBytes)}</dd>
+                  </div>
+                  <div>
+                    <dt>路径</dt>
+                    <dd title={activeImage.path}>{activeImage.path}</dd>
+                  </div>
+                </dl>
+              </aside>
+            ) : null}
+          </div>
+
+          <button
+            aria-label="下一张"
+            className="viewer-nav next"
+            title="下一张"
+            type="button"
+            onClick={showNextImage}
+          >
+            <ChevronRight size={28} aria-hidden="true" />
+          </button>
+        </section>
+      ) : null}
     </main>
   );
 }
@@ -723,6 +1007,14 @@ function formatDate(value: string): string {
     hour: "2-digit",
     minute: "2-digit",
   }).format(new Date(value));
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(Math.max(value, min), max);
+}
+
+function convertImagePath(path: string): string {
+  return isTauriRuntime() ? convertFileSrc(path) : path;
 }
 
 export default App;
