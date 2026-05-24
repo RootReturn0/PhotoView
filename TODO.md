@@ -4,7 +4,7 @@
 
 ## 阶段 0：架构与全量范围确认
 
-- [ ] 架构 subagent：确定 Tauri 2 + Rust + SQLite + 前端框架方案。
+- [x] 架构 subagent：确定 Tauri 2 + Rust + SQLite + 前端框架方案。
 - [ ] 架构 subagent：划分 Rust command/API、数据库、缩略图缓存、配置目录和前端状态边界。
 - [ ] 产品 subagent：把 `plan.md` 全部功能整理为可验收清单。
 - [ ] 产品 subagent：明确每个功能的完成标准、依赖关系和实现顺序。
@@ -12,7 +12,7 @@
 
 ## 阶段 1：基础工程
 
-- [ ] Tauri 工程 subagent：初始化 Tauri 跨平台项目结构。
+- [x] Tauri 工程 subagent：初始化 Tauri 跨平台项目结构。
 - [ ] Tauri 工程 subagent：配置窗口、菜单、应用图标、基础权限。
 - [ ] Tauri 工程 subagent：封装文件夹选择、打开文件所在位置、复制路径等系统能力。
 - [ ] 数据库 subagent：设计 collections、images、tags、favorites、history、settings 表结构。
