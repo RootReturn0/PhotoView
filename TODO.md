@@ -70,7 +70,7 @@
 - [x] 性能 subagent：控制大图浏览内存占用，避免崩溃。
 - [x] QA subagent：补充 Rust 单元测试和 Tauri command 测试。
 - [x] QA subagent：补充前端组件测试和关键交互测试。
-- [ ] QA subagent：执行 Windows、macOS、Linux 冒烟测试。
+- [x] QA subagent：执行 Windows、macOS、Linux 冒烟测试。
 - [x] 打包 subagent：配置跨平台构建、安装包和发布产物。
 - [x] 打包 subagent：配置应用图标、签名预留和自动更新预留。
 
