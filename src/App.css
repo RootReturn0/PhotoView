@@ -23,7 +23,8 @@ body {
 }
 
 button,
-input {
+input,
+select {
   font: inherit;
 }
 
@@ -130,7 +131,7 @@ nav {
 
 .content {
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto auto;
+  grid-template-rows: auto auto minmax(0, 1fr) auto auto;
   gap: 14px;
   min-height: 0;
   padding: 20px;
@@ -153,6 +154,159 @@ nav {
   font-size: 0.9rem;
 }
 
+.collection-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.collection-controls select {
+  border: 1px solid #cfd7e2;
+  border-radius: 7px;
+  background: #ffffff;
+  color: #2f3a46;
+  min-height: 36px;
+  padding: 6px 10px;
+}
+
+.segmented-control {
+  display: inline-grid;
+  grid-template-columns: repeat(2, 34px);
+  border: 1px solid #cfd7e2;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.segmented-control button {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  border: 0;
+  border-radius: 0;
+  background: #ffffff;
+  color: #526173;
+  padding: 0;
+}
+
+.segmented-control button + button {
+  border-left: 1px solid #cfd7e2;
+}
+
+.segmented-control button.active,
+.segmented-control button:hover {
+  background: #edf4fb;
+  color: #12395f;
+}
+
+.collection-surface {
+  min-height: 0;
+  overflow: auto;
+}
+
+.collection-surface.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  align-content: start;
+  gap: 12px;
+}
+
+.collection-surface.list {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+}
+
+.collection-card {
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  border: 1px solid #d8e0ea;
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 12px;
+  min-width: 0;
+}
+
+.collection-surface.grid .collection-card {
+  grid-template-columns: 1fr auto;
+  grid-template-rows: 64px minmax(0, 1fr);
+  align-items: stretch;
+}
+
+.collection-surface.grid .collection-cover {
+  grid-column: 1 / -1;
+}
+
+.collection-cover {
+  display: grid;
+  width: 52px;
+  height: 52px;
+  place-items: center;
+  border-radius: 8px;
+  background: #edf4fb;
+  color: #205493;
+}
+
+.collection-surface.grid .collection-cover {
+  width: 100%;
+  height: 64px;
+}
+
+.collection-main {
+  min-width: 0;
+}
+
+.collection-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.collection-title-row h2 {
+  overflow: hidden;
+  margin: 0;
+  color: #1f2933;
+  font-size: 1rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.collection-title-row svg {
+  flex: 0 0 auto;
+  color: #b87916;
+}
+
+.collection-main p {
+  overflow: hidden;
+  margin: 4px 0 0;
+  color: #637083;
+  font-size: 0.82rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.collection-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  margin-top: 9px;
+  color: #536173;
+  font-size: 0.8rem;
+}
+
+.collection-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.collection-surface.grid .collection-actions {
+  justify-content: flex-end;
+}
+
 .empty-state {
   display: grid;
   place-content: center;
@@ -162,6 +316,10 @@ nav {
   min-height: 280px;
   padding: 28px;
   text-align: center;
+}
+
+.collection-surface .empty-state {
+  grid-column: 1 / -1;
 }
 
 .selected-folder {
@@ -253,5 +411,15 @@ nav {
 
   .selected-folder {
     grid-template-columns: 1fr;
+  }
+
+  .collection-card,
+  .collection-surface.grid .collection-card {
+    grid-template-columns: 1fr;
+  }
+
+  .collection-actions,
+  .collection-surface.grid .collection-actions {
+    justify-content: flex-start;
   }
 }
