@@ -2,6 +2,8 @@ use crate::errors::AppResult;
 use rusqlite::{Connection, OptionalExtension};
 use std::path::Path;
 
+pub mod repositories;
+
 pub const CURRENT_SCHEMA_VERSION: i64 = 1;
 
 pub fn open_database(path: &Path) -> AppResult<Connection> {

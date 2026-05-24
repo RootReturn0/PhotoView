@@ -1,0 +1,810 @@
+use crate::{
+    errors::{AppError, AppResult},
+    models::{
+        CollectionDto, CreateCollectionRequest, CreateImageRequest, CreateTagRequest, ImageDto,
+        ListImagesRequest, SettingDto, TagDto, UpdateCollectionRequest, UpdateImageRequest,
+        UpdateSettingRequest, UpdateTagRequest,
+    },
+};
+use chrono::Utc;
+use rusqlite::{params, Connection, OptionalExtension, Row};
+use std::path::Path;
+use uuid::Uuid;
+
+const DEFAULT_TAG_COLOR: &str = "#4f7cff";
+const DEFAULT_PAGE_LIMIT: i64 = 200;
+const MAX_PAGE_LIMIT: i64 = 1000;
+
+pub fn list_collections(conn: &Connection) -> AppResult<Vec<CollectionDto>> {
+    let mut stmt = conn.prepare(
+        "
+        SELECT id, path, name, cover_image_id, description, rating, is_favorite,
+               image_count, total_size_bytes, created_at, imported_at, updated_at,
+               last_viewed_at, view_count
+        FROM collections
+        WHERE deleted_at IS NULL
+        ORDER BY imported_at DESC, name COLLATE NOCASE ASC
+        ",
+    )?;
+
+    let rows = collect_rows(stmt.query_map([], collection_from_row)?);
+    rows
+}
+
+pub fn get_collection(conn: &Connection, id: &str) -> AppResult<Option<CollectionDto>> {
+    conn.query_row(
+        "
+        SELECT id, path, name, cover_image_id, description, rating, is_favorite,
+               image_count, total_size_bytes, created_at, imported_at, updated_at,
+               last_viewed_at, view_count
+        FROM collections
+        WHERE id = ?1 AND deleted_at IS NULL
+        ",
+        params![id],
+        collection_from_row,
+    )
+    .optional()
+    .map_err(Into::into)
+}
+
+pub fn create_collection(
+    conn: &Connection,
+    request: CreateCollectionRequest,
+) -> AppResult<CollectionDto> {
+    let id = Uuid::new_v4().to_string();
+    let path = require_text(request.path, "合集路径")?;
+    let name = match request.name {
+        Some(value) => require_text(value, "合集名称")?,
+        None => default_collection_name(&path),
+    };
+    let description = request.description.unwrap_or_default();
+    let rating = validate_rating(request.rating.unwrap_or(0))?;
+    let now = now();
+
+    conn.execute(
+        "
+        INSERT INTO collections (
+          id, path, name, description, rating, imported_at, updated_at
+        )
+        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6)
+        ",
+        params![id, path, name, description, rating, now],
+    )?;
+
+    get_collection_required(conn, &id)
+}
+
+pub fn update_collection(
+    conn: &Connection,
+    request: UpdateCollectionRequest,
+) -> AppResult<CollectionDto> {
+    let current = get_collection_required(conn, &request.id)?;
+    let name = match request.name {
+        Some(value) => require_text(value, "合集名称")?,
+        None => current.name,
+    };
+    let description = request.description.unwrap_or(current.description);
+    let rating = match request.rating {
+        Some(value) => validate_rating(value)?,
+        None => current.rating,
+    };
+    let is_favorite = request.is_favorite.unwrap_or(current.is_favorite);
+    let cover_image_id = request.cover_image_id.or(current.cover_image_id);
+    let now = now();
+
+    conn.execute(
+        "
+        UPDATE collections
+        SET name = ?2,
+            description = ?3,
+            rating = ?4,
+            is_favorite = ?5,
+            cover_image_id = ?6,
+            updated_at = ?7
+        WHERE id = ?1 AND deleted_at IS NULL
+        ",
+        params![
+            request.id,
+            name,
+            description,
+            rating,
+            bool_to_i64(is_favorite),
+            cover_image_id,
+            now
+        ],
+    )?;
+
+    get_collection_required(conn, &request.id)
+}
+
+pub fn delete_collection_record(conn: &Connection, id: &str) -> AppResult<()> {
+    let affected = conn.execute("DELETE FROM collections WHERE id = ?1", params![id])?;
+    ensure_affected(affected, "合集不存在")
+}
+
+pub fn list_images(conn: &Connection, request: ListImagesRequest) -> AppResult<Vec<ImageDto>> {
+    let limit = validate_limit(request.limit)?;
+    let offset = validate_offset(request.offset)?;
+
+    if let Some(collection_id) = request.collection_id {
+        let collection_id = require_text(collection_id, "合集 ID")?;
+        let mut stmt = conn.prepare(
+            "
+            SELECT id, collection_id, path, file_name, extension, format, size_bytes,
+                   width, height, created_at, modified_at, imported_at, updated_at,
+                   sha256, phash, rating, is_favorite, is_missing, last_viewed_at, view_count
+            FROM images
+            WHERE collection_id = ?1
+            ORDER BY file_name COLLATE NOCASE ASC
+            LIMIT ?2 OFFSET ?3
+            ",
+        )?;
+
+        let rows =
+            collect_rows(stmt.query_map(params![collection_id, limit, offset], image_from_row)?);
+        return rows;
+    }
+
+    let mut stmt = conn.prepare(
+        "
+        SELECT id, collection_id, path, file_name, extension, format, size_bytes,
+               width, height, created_at, modified_at, imported_at, updated_at,
+               sha256, phash, rating, is_favorite, is_missing, last_viewed_at, view_count
+        FROM images
+        ORDER BY imported_at DESC, file_name COLLATE NOCASE ASC
+        LIMIT ?1 OFFSET ?2
+        ",
+    )?;
+
+    let rows = collect_rows(stmt.query_map(params![limit, offset], image_from_row)?);
+    rows
+}
+
+pub fn get_image(conn: &Connection, id: &str) -> AppResult<Option<ImageDto>> {
+    conn.query_row(
+        "
+        SELECT id, collection_id, path, file_name, extension, format, size_bytes,
+               width, height, created_at, modified_at, imported_at, updated_at,
+               sha256, phash, rating, is_favorite, is_missing, last_viewed_at, view_count
+        FROM images
+        WHERE id = ?1
+        ",
+        params![id],
+        image_from_row,
+    )
+    .optional()
+    .map_err(Into::into)
+}
+
+pub fn create_image(conn: &Connection, request: CreateImageRequest) -> AppResult<ImageDto> {
+    let collection_id = require_text(request.collection_id, "合集 ID")?;
+    ensure_collection_exists(conn, &collection_id)?;
+
+    let id = Uuid::new_v4().to_string();
+    let path = require_text(request.path, "图片路径")?;
+    let file_name = match request.file_name {
+        Some(value) => require_text(value, "文件名")?,
+        None => default_file_name(&path)?,
+    };
+    let extension = match request.extension {
+        Some(value) => normalize_extension(value)?,
+        None => default_extension(&path)?,
+    };
+    let format = match request.format {
+        Some(value) => require_text(value, "图片格式")?,
+        None => extension.clone(),
+    };
+    let size_bytes = validate_non_negative(request.size_bytes.unwrap_or(0), "文件大小")?;
+    let width = validate_optional_dimension(request.width, "图片宽度")?;
+    let height = validate_optional_dimension(request.height, "图片高度")?;
+    let now = now();
+
+    conn.execute(
+        "
+        INSERT INTO images (
+          id, collection_id, path, file_name, extension, format, size_bytes,
+          width, height, created_at, modified_at, imported_at, updated_at, sha256
+        )
+        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?12, ?13)
+        ",
+        params![
+            id,
+            collection_id,
+            path,
+            file_name,
+            extension,
+            format,
+            size_bytes,
+            width,
+            height,
+            request.created_at,
+            request.modified_at,
+            now,
+            request.sha256
+        ],
+    )?;
+
+    refresh_collection_stats(conn, &collection_id)?;
+    get_image_required(conn, &id)
+}
+
+pub fn update_image(conn: &Connection, request: UpdateImageRequest) -> AppResult<ImageDto> {
+    let current = get_image_required(conn, &request.id)?;
+    let file_name = match request.file_name {
+        Some(value) => require_text(value, "文件名")?,
+        None => current.file_name,
+    };
+    let rating = match request.rating {
+        Some(value) => validate_rating(value)?,
+        None => current.rating,
+    };
+    let width = validate_optional_dimension(request.width.or(current.width), "图片宽度")?;
+    let height = validate_optional_dimension(request.height.or(current.height), "图片高度")?;
+    let is_favorite = request.is_favorite.unwrap_or(current.is_favorite);
+    let is_missing = request.is_missing.unwrap_or(current.is_missing);
+    let sha256 = request.sha256.or(current.sha256);
+    let phash = request.phash.or(current.phash);
+    let now = now();
+
+    conn.execute(
+        "
+        UPDATE images
+        SET file_name = ?2,
+            width = ?3,
+            height = ?4,
+            sha256 = ?5,
+            phash = ?6,
+            rating = ?7,
+            is_favorite = ?8,
+            is_missing = ?9,
+            updated_at = ?10
+        WHERE id = ?1
+        ",
+        params![
+            request.id,
+            file_name,
+            width,
+            height,
+            sha256,
+            phash,
+            rating,
+            bool_to_i64(is_favorite),
+            bool_to_i64(is_missing),
+            now
+        ],
+    )?;
+
+    get_image_required(conn, &request.id)
+}
+
+pub fn delete_image_record(conn: &Connection, id: &str) -> AppResult<()> {
+    let image = get_image_required(conn, id)?;
+    let affected = conn.execute("DELETE FROM images WHERE id = ?1", params![id])?;
+    ensure_affected(affected, "图片不存在")?;
+    refresh_collection_stats(conn, &image.collection_id)
+}
+
+pub fn list_tags(conn: &Connection) -> AppResult<Vec<TagDto>> {
+    let mut stmt = conn.prepare(
+        "
+        SELECT id, name, color, created_at, updated_at
+        FROM tags
+        ORDER BY name COLLATE NOCASE ASC
+        ",
+    )?;
+
+    let rows = collect_rows(stmt.query_map([], tag_from_row)?);
+    rows
+}
+
+pub fn get_tag(conn: &Connection, id: &str) -> AppResult<Option<TagDto>> {
+    conn.query_row(
+        "
+        SELECT id, name, color, created_at, updated_at
+        FROM tags
+        WHERE id = ?1
+        ",
+        params![id],
+        tag_from_row,
+    )
+    .optional()
+    .map_err(Into::into)
+}
+
+pub fn create_tag(conn: &Connection, request: CreateTagRequest) -> AppResult<TagDto> {
+    let id = Uuid::new_v4().to_string();
+    let name = require_text(request.name, "标签名称")?;
+    let color = match request.color {
+        Some(value) => validate_color(value)?,
+        None => DEFAULT_TAG_COLOR.to_string(),
+    };
+    let now = now();
+
+    conn.execute(
+        "
+        INSERT INTO tags (id, name, color, created_at, updated_at)
+        VALUES (?1, ?2, ?3, ?4, ?4)
+        ",
+        params![id, name, color, now],
+    )?;
+
+    get_tag_required(conn, &id)
+}
+
+pub fn update_tag(conn: &Connection, request: UpdateTagRequest) -> AppResult<TagDto> {
+    let current = get_tag_required(conn, &request.id)?;
+    let name = match request.name {
+        Some(value) => require_text(value, "标签名称")?,
+        None => current.name,
+    };
+    let color = match request.color {
+        Some(value) => validate_color(value)?,
+        None => current.color,
+    };
+    let now = now();
+
+    conn.execute(
+        "
+        UPDATE tags
+        SET name = ?2, color = ?3, updated_at = ?4
+        WHERE id = ?1
+        ",
+        params![request.id, name, color, now],
+    )?;
+
+    get_tag_required(conn, &request.id)
+}
+
+pub fn delete_tag(conn: &Connection, id: &str) -> AppResult<()> {
+    let affected = conn.execute("DELETE FROM tags WHERE id = ?1", params![id])?;
+    ensure_affected(affected, "标签不存在")
+}
+
+pub fn list_settings(conn: &Connection) -> AppResult<Vec<SettingDto>> {
+    let mut stmt = conn.prepare(
+        "
+        SELECT key, value, updated_at
+        FROM settings
+        ORDER BY key ASC
+        ",
+    )?;
+
+    let rows = collect_rows(stmt.query_map([], setting_from_row)?);
+    rows
+}
+
+pub fn get_setting(conn: &Connection, key: &str) -> AppResult<Option<SettingDto>> {
+    conn.query_row(
+        "
+        SELECT key, value, updated_at
+        FROM settings
+        WHERE key = ?1
+        ",
+        params![key],
+        setting_from_row,
+    )
+    .optional()
+    .map_err(Into::into)
+}
+
+pub fn update_setting(conn: &Connection, request: UpdateSettingRequest) -> AppResult<SettingDto> {
+    let key = require_text(request.key, "设置键")?;
+    let value = require_text(request.value, "设置值")?;
+    let now = now();
+
+    conn.execute(
+        "
+        INSERT INTO settings (key, value, updated_at)
+        VALUES (?1, ?2, ?3)
+        ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+        ",
+        params![key, value, now],
+    )?;
+
+    get_setting(conn, &key)?.ok_or_else(|| AppError::internal("setting was not saved"))
+}
+
+fn refresh_collection_stats(conn: &Connection, collection_id: &str) -> AppResult<()> {
+    conn.execute(
+        "
+        UPDATE collections
+        SET image_count = (
+              SELECT COUNT(*) FROM images WHERE collection_id = ?1
+            ),
+            total_size_bytes = (
+              SELECT COALESCE(SUM(size_bytes), 0) FROM images WHERE collection_id = ?1
+            ),
+            updated_at = ?2
+        WHERE id = ?1
+        ",
+        params![collection_id, now()],
+    )?;
+
+    Ok(())
+}
+
+fn ensure_collection_exists(conn: &Connection, id: &str) -> AppResult<()> {
+    let exists = conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM collections WHERE id = ?1 AND deleted_at IS NULL)",
+        params![id],
+        |row| row.get::<_, i64>(0),
+    )?;
+
+    if exists == 1 {
+        return Ok(());
+    }
+
+    Err(AppError::new("not_found", "合集不存在"))
+}
+
+fn get_collection_required(conn: &Connection, id: &str) -> AppResult<CollectionDto> {
+    get_collection(conn, id)?.ok_or_else(|| AppError::new("not_found", "合集不存在"))
+}
+
+fn get_image_required(conn: &Connection, id: &str) -> AppResult<ImageDto> {
+    get_image(conn, id)?.ok_or_else(|| AppError::new("not_found", "图片不存在"))
+}
+
+fn get_tag_required(conn: &Connection, id: &str) -> AppResult<TagDto> {
+    get_tag(conn, id)?.ok_or_else(|| AppError::new("not_found", "标签不存在"))
+}
+
+fn ensure_affected(affected: usize, message: &str) -> AppResult<()> {
+    if affected == 0 {
+        return Err(AppError::new("not_found", message));
+    }
+
+    Ok(())
+}
+
+fn collection_from_row(row: &Row<'_>) -> rusqlite::Result<CollectionDto> {
+    Ok(CollectionDto {
+        id: row.get("id")?,
+        path: row.get("path")?,
+        name: row.get("name")?,
+        cover_image_id: row.get("cover_image_id")?,
+        description: row.get("description")?,
+        rating: row.get("rating")?,
+        is_favorite: row.get::<_, i64>("is_favorite")? == 1,
+        image_count: row.get("image_count")?,
+        total_size_bytes: row.get("total_size_bytes")?,
+        created_at: row.get("created_at")?,
+        imported_at: row.get("imported_at")?,
+        updated_at: row.get("updated_at")?,
+        last_viewed_at: row.get("last_viewed_at")?,
+        view_count: row.get("view_count")?,
+    })
+}
+
+fn image_from_row(row: &Row<'_>) -> rusqlite::Result<ImageDto> {
+    Ok(ImageDto {
+        id: row.get("id")?,
+        collection_id: row.get("collection_id")?,
+        path: row.get("path")?,
+        file_name: row.get("file_name")?,
+        extension: row.get("extension")?,
+        format: row.get("format")?,
+        size_bytes: row.get("size_bytes")?,
+        width: row.get("width")?,
+        height: row.get("height")?,
+        created_at: row.get("created_at")?,
+        modified_at: row.get("modified_at")?,
+        imported_at: row.get("imported_at")?,
+        updated_at: row.get("updated_at")?,
+        sha256: row.get("sha256")?,
+        phash: row.get("phash")?,
+        rating: row.get("rating")?,
+        is_favorite: row.get::<_, i64>("is_favorite")? == 1,
+        is_missing: row.get::<_, i64>("is_missing")? == 1,
+        last_viewed_at: row.get("last_viewed_at")?,
+        view_count: row.get("view_count")?,
+    })
+}
+
+fn tag_from_row(row: &Row<'_>) -> rusqlite::Result<TagDto> {
+    Ok(TagDto {
+        id: row.get("id")?,
+        name: row.get("name")?,
+        color: row.get("color")?,
+        created_at: row.get("created_at")?,
+        updated_at: row.get("updated_at")?,
+    })
+}
+
+fn setting_from_row(row: &Row<'_>) -> rusqlite::Result<SettingDto> {
+    Ok(SettingDto {
+        key: row.get("key")?,
+        value: row.get("value")?,
+        updated_at: row.get("updated_at")?,
+    })
+}
+
+fn collect_rows<T, I>(rows: I) -> AppResult<Vec<T>>
+where
+    I: IntoIterator<Item = rusqlite::Result<T>>,
+{
+    let mut items = Vec::new();
+    for row in rows {
+        items.push(row?);
+    }
+    Ok(items)
+}
+
+fn default_collection_name(path: &str) -> String {
+    Path::new(path)
+        .file_name()
+        .and_then(|value| value.to_str())
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or(path)
+        .to_string()
+}
+
+fn default_file_name(path: &str) -> AppResult<String> {
+    Path::new(path)
+        .file_name()
+        .and_then(|value| value.to_str())
+        .map(ToOwned::to_owned)
+        .ok_or_else(|| AppError::new("validation_error", "图片路径缺少文件名"))
+}
+
+fn default_extension(path: &str) -> AppResult<String> {
+    let extension = Path::new(path)
+        .extension()
+        .and_then(|value| value.to_str())
+        .ok_or_else(|| AppError::new("validation_error", "图片路径缺少扩展名"))?;
+
+    normalize_extension(extension.to_string())
+}
+
+fn normalize_extension(value: String) -> AppResult<String> {
+    let value = require_text(value, "扩展名")?;
+    Ok(value.trim_start_matches('.').to_ascii_lowercase())
+}
+
+fn require_text(value: String, label: &str) -> AppResult<String> {
+    let value = value.trim().to_string();
+    if value.is_empty() {
+        return Err(AppError::new(
+            "validation_error",
+            format!("{label}不能为空"),
+        ));
+    }
+
+    Ok(value)
+}
+
+fn validate_rating(value: i64) -> AppResult<i64> {
+    if !(0..=5).contains(&value) {
+        return Err(AppError::new("validation_error", "评分必须在 0 到 5 之间"));
+    }
+
+    Ok(value)
+}
+
+fn validate_non_negative(value: i64, label: &str) -> AppResult<i64> {
+    if value < 0 {
+        return Err(AppError::new(
+            "validation_error",
+            format!("{label}不能为负数"),
+        ));
+    }
+
+    Ok(value)
+}
+
+fn validate_optional_dimension(value: Option<i64>, label: &str) -> AppResult<Option<i64>> {
+    match value {
+        Some(value) if value <= 0 => Err(AppError::new(
+            "validation_error",
+            format!("{label}必须大于 0"),
+        )),
+        value => Ok(value),
+    }
+}
+
+fn validate_limit(value: Option<i64>) -> AppResult<i64> {
+    let limit = value.unwrap_or(DEFAULT_PAGE_LIMIT);
+    if !(1..=MAX_PAGE_LIMIT).contains(&limit) {
+        return Err(AppError::new(
+            "validation_error",
+            format!("分页大小必须在 1 到 {MAX_PAGE_LIMIT} 之间"),
+        ));
+    }
+
+    Ok(limit)
+}
+
+fn validate_offset(value: Option<i64>) -> AppResult<i64> {
+    validate_non_negative(value.unwrap_or(0), "分页偏移量")
+}
+
+fn validate_color(value: String) -> AppResult<String> {
+    let value = require_text(value, "标签颜色")?;
+    let valid = value.len() == 7
+        && value.starts_with('#')
+        && value.chars().skip(1).all(|value| value.is_ascii_hexdigit());
+
+    if !valid {
+        return Err(AppError::new(
+            "validation_error",
+            "标签颜色必须是 #RRGGBB 格式",
+        ));
+    }
+
+    Ok(value)
+}
+
+fn bool_to_i64(value: bool) -> i64 {
+    if value {
+        1
+    } else {
+        0
+    }
+}
+
+fn now() -> String {
+    Utc::now().to_rfc3339()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db;
+    use std::{fs, path::PathBuf};
+
+    fn temp_database() -> (PathBuf, Connection) {
+        let path = std::env::temp_dir().join(format!("photoview-crud-{}.sqlite", Uuid::new_v4()));
+        let conn = db::open_database(&path).expect("database should initialize");
+        (path, conn)
+    }
+
+    #[test]
+    fn collection_and_image_crud_round_trip() {
+        let (path, conn) = temp_database();
+
+        let collection = create_collection(
+            &conn,
+            CreateCollectionRequest {
+                path: "/tmp/photos".to_string(),
+                name: Some("Photos".to_string()),
+                description: Some("Local folder".to_string()),
+                rating: Some(3),
+            },
+        )
+        .expect("collection should be created");
+
+        assert_eq!(collection.name, "Photos");
+        assert_eq!(list_collections(&conn).unwrap().len(), 1);
+
+        let updated = update_collection(
+            &conn,
+            UpdateCollectionRequest {
+                id: collection.id.clone(),
+                name: Some("Archive".to_string()),
+                description: None,
+                rating: Some(4),
+                is_favorite: Some(true),
+                cover_image_id: None,
+            },
+        )
+        .expect("collection should be updated");
+
+        assert_eq!(updated.name, "Archive");
+        assert!(updated.is_favorite);
+
+        let image = create_image(
+            &conn,
+            CreateImageRequest {
+                collection_id: collection.id.clone(),
+                path: "/tmp/photos/a.jpg".to_string(),
+                file_name: None,
+                extension: None,
+                format: None,
+                size_bytes: Some(42),
+                width: Some(640),
+                height: Some(480),
+                created_at: None,
+                modified_at: None,
+                sha256: Some("abc".to_string()),
+            },
+        )
+        .expect("image should be created");
+
+        assert_eq!(image.file_name, "a.jpg");
+        assert_eq!(image.extension, "jpg");
+
+        let collection = get_collection_required(&conn, &collection.id).unwrap();
+        assert_eq!(collection.image_count, 1);
+        assert_eq!(collection.total_size_bytes, 42);
+
+        let images = list_images(
+            &conn,
+            ListImagesRequest {
+                collection_id: Some(collection.id.clone()),
+                limit: Some(20),
+                offset: Some(0),
+            },
+        )
+        .unwrap();
+        assert_eq!(images.len(), 1);
+
+        let image = update_image(
+            &conn,
+            UpdateImageRequest {
+                id: image.id.clone(),
+                file_name: Some("renamed.jpg".to_string()),
+                width: None,
+                height: None,
+                sha256: None,
+                phash: Some("phash".to_string()),
+                rating: Some(5),
+                is_favorite: Some(true),
+                is_missing: Some(false),
+            },
+        )
+        .expect("image should be updated");
+
+        assert_eq!(image.file_name, "renamed.jpg");
+        assert_eq!(image.rating, 5);
+        assert!(image.is_favorite);
+
+        delete_image_record(&conn, &image.id).expect("image record should be deleted");
+        let collection = get_collection_required(&conn, &collection.id).unwrap();
+        assert_eq!(collection.image_count, 0);
+        assert_eq!(collection.total_size_bytes, 0);
+
+        delete_collection_record(&conn, &collection.id)
+            .expect("collection record should be deleted");
+        assert!(get_collection(&conn, &collection.id).unwrap().is_none());
+
+        drop(conn);
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn tag_and_setting_crud_round_trip() {
+        let (path, conn) = temp_database();
+
+        let tag = create_tag(
+            &conn,
+            CreateTagRequest {
+                name: "Travel".to_string(),
+                color: None,
+            },
+        )
+        .expect("tag should be created");
+
+        assert_eq!(tag.color, DEFAULT_TAG_COLOR);
+
+        let tag = update_tag(
+            &conn,
+            UpdateTagRequest {
+                id: tag.id.clone(),
+                name: Some("Trips".to_string()),
+                color: Some("#12aB34".to_string()),
+            },
+        )
+        .expect("tag should be updated");
+
+        assert_eq!(tag.name, "Trips");
+        assert_eq!(list_tags(&conn).unwrap().len(), 1);
+
+        let setting = update_setting(
+            &conn,
+            UpdateSettingRequest {
+                key: "thumbnail_size".to_string(),
+                value: "256".to_string(),
+            },
+        )
+        .expect("setting should be saved");
+
+        assert_eq!(setting.value, "256");
+        assert!(get_setting(&conn, "thumbnail_size").unwrap().is_some());
+
+        delete_tag(&conn, &tag.id).expect("tag should be deleted");
+        assert!(get_tag(&conn, &tag.id).unwrap().is_none());
+
+        drop(conn);
+        let _ = fs::remove_file(path);
+    }
+}

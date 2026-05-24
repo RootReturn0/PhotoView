@@ -3,8 +3,8 @@
 ## Current
 
 - 阶段：阶段 1，基础工程。
-- 正在做：应用初始化、SQLite schema migration、文件夹选择和路径系统能力已完成。
-- 下一步：实现 collections、images、tags、settings 基础 CRUD，并继续推进文件夹导入与图片扫描。
+- 正在做：应用初始化、SQLite schema migration、系统能力和基础 CRUD 已完成。
+- 下一步：集成扫描模块，继续推进文件夹导入、图片格式识别、元数据提取和增量扫描。
 
 ## Done
 
@@ -24,6 +24,7 @@
 - 已实现应用数据目录初始化、SQLite schema migration、默认设置写入和 `get_app_status` command。
 - 已替换模板首页为 PhotoView 应用骨架，可展示 schema、图片数、标签数和初始化错误。
 - 已实现 `choose_import_folder`、`open_path_in_file_manager`、`copy_text_to_clipboard`、`copy_path_to_clipboard` 系统 command，并在前端导入按钮中接入文件夹选择、复制路径和打开所在位置。
+- 已实现 collections、images、tags、settings 基础 CRUD repository 和 Tauri command，并补充 Rust 单元测试。
 - 已完成本轮验证：`pnpm build` 通过，`cargo test` 通过，`cargo fmt --check` 通过。
 
 ## Blocked
