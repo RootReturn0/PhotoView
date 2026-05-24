@@ -61,6 +61,11 @@ pub fn update_collection(
 }
 
 #[tauri::command]
+pub fn mark_collection_viewed(state: State<'_, AppState>, id: String) -> AppResult<CollectionDto> {
+    state.with_db(|db| repositories::mark_collection_viewed(db, &id))
+}
+
+#[tauri::command]
 pub fn delete_collection_record(state: State<'_, AppState>, id: String) -> AppResult<()> {
     state.with_db(|db| repositories::delete_collection_record(db, &id))
 }

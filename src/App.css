@@ -24,7 +24,8 @@ body {
 
 button,
 input,
-select {
+select,
+textarea {
   font: inherit;
 }
 
@@ -344,6 +345,13 @@ nav {
   white-space: nowrap;
 }
 
+.detail-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
 .detail-meta {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -487,6 +495,103 @@ nav {
 .icon-button:hover {
   border-color: #8fa1b8;
   background: #eef3f8;
+}
+
+.icon-button.danger {
+  color: #9f2f2f;
+}
+
+.icon-button.danger:hover {
+  border-color: #d7a4a4;
+  background: #fff0f0;
+}
+
+.icon-button.compact {
+  width: 28px;
+  height: 28px;
+}
+
+.primary-action,
+.secondary-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 7px;
+  min-height: 38px;
+  padding: 8px 14px;
+}
+
+.primary-action {
+  border: 1px solid #174a7c;
+  background: #205493;
+  color: #ffffff;
+}
+
+.secondary-action {
+  border: 1px solid #cfd7e2;
+  background: #ffffff;
+  color: #2f3a46;
+}
+
+.primary-action:disabled,
+.secondary-action:disabled {
+  cursor: progress;
+  opacity: 0.72;
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  background: rgba(31, 41, 51, 0.42);
+  padding: 20px;
+}
+
+.collection-editor {
+  display: grid;
+  gap: 14px;
+  width: min(520px, 100%);
+  border: 1px solid #cfd7e2;
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 18px;
+  box-shadow: 0 18px 50px rgba(20, 35, 52, 0.22);
+}
+
+.collection-editor header,
+.collection-editor footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.collection-editor h2 {
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+.collection-editor label {
+  display: grid;
+  gap: 6px;
+  color: #2f3a46;
+  font-size: 0.88rem;
+}
+
+.collection-editor input,
+.collection-editor textarea {
+  width: 100%;
+  border: 1px solid #cfd7e2;
+  border-radius: 7px;
+  background: #f9fbfd;
+  color: #1f2933;
+  padding: 9px 10px;
+}
+
+.collection-editor textarea {
+  resize: vertical;
 }
 
 .empty-state h2 {

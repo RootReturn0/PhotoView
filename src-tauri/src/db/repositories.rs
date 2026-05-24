@@ -157,11 +157,16 @@ pub fn update_collection(
         Some(value) => validate_rating(value)?,
         None => current.rating,
     };
+    let favorite_was_requested = request.is_favorite.is_some();
     let is_favorite = request.is_favorite.unwrap_or(current.is_favorite);
-    let cover_image_id = request.cover_image_id.or(current.cover_image_id);
+    let cover_image_id = match request.cover_image_id {
+        Some(value) => normalize_collection_cover(conn, &request.id, value)?,
+        None => current.cover_image_id,
+    };
     let now = now();
 
-    conn.execute(
+    let tx = conn.unchecked_transaction()?;
+    tx.execute(
         "
         UPDATE collections
         SET name = ?2,
@@ -182,13 +187,57 @@ pub fn update_collection(
             now
         ],
     )?;
+    if favorite_was_requested {
+        sync_favorite(&tx, "collection", &request.id, is_favorite, &now)?;
+    }
+    tx.commit()?;
 
     get_collection_required(conn, &request.id)
 }
 
 pub fn delete_collection_record(conn: &Connection, id: &str) -> AppResult<()> {
-    let affected = conn.execute("DELETE FROM collections WHERE id = ?1", params![id])?;
-    ensure_affected(affected, "合集不存在")
+    let tx = conn.unchecked_transaction()?;
+    tx.execute(
+        "DELETE FROM favorites WHERE target_type = 'collection' AND target_id = ?1",
+        params![id],
+    )?;
+    tx.execute(
+        "DELETE FROM history WHERE target_type = 'collection' AND target_id = ?1",
+        params![id],
+    )?;
+    let affected = tx.execute("DELETE FROM collections WHERE id = ?1", params![id])?;
+    ensure_affected(affected, "合集不存在")?;
+    tx.commit()?;
+    Ok(())
+}
+
+pub fn mark_collection_viewed(conn: &Connection, id: &str) -> AppResult<CollectionDto> {
+    let now = now();
+    let tx = conn.unchecked_transaction()?;
+    let affected = tx.execute(
+        "
+        UPDATE collections
+        SET last_viewed_at = ?2,
+            view_count = view_count + 1,
+            updated_at = ?2
+        WHERE id = ?1 AND deleted_at IS NULL
+        ",
+        params![id, now],
+    )?;
+    ensure_affected(affected, "合集不存在")?;
+
+    tx.execute(
+        "
+        INSERT INTO history (id, target_type, target_id, viewed_at)
+        VALUES (?1, 'collection', ?2, ?3)
+        ON CONFLICT(target_type, target_id)
+        DO UPDATE SET viewed_at = excluded.viewed_at
+        ",
+        params![Uuid::new_v4().to_string(), id, now],
+    )?;
+    tx.commit()?;
+
+    get_collection_required(conn, id)
 }
 
 pub fn list_images(conn: &Connection, request: ListImagesRequest) -> AppResult<Vec<ImageDto>> {
@@ -826,6 +875,56 @@ fn ensure_collection_exists(conn: &Connection, id: &str) -> AppResult<()> {
     Err(AppError::new("not_found", "合集不存在"))
 }
 
+fn normalize_collection_cover(
+    conn: &Connection,
+    collection_id: &str,
+    cover_image_id: String,
+) -> AppResult<Option<String>> {
+    let cover_image_id = cover_image_id.trim().to_string();
+    if cover_image_id.is_empty() {
+        return Ok(None);
+    }
+
+    let belongs_to_collection = conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM images WHERE id = ?1 AND collection_id = ?2)",
+        params![cover_image_id, collection_id],
+        |row| row.get::<_, i64>(0),
+    )?;
+
+    if belongs_to_collection == 1 {
+        Ok(Some(cover_image_id))
+    } else {
+        Err(AppError::new("validation_error", "封面图片不属于当前合集"))
+    }
+}
+
+fn sync_favorite(
+    conn: &Connection,
+    target_type: &str,
+    target_id: &str,
+    is_favorite: bool,
+    now: &str,
+) -> AppResult<()> {
+    if is_favorite {
+        conn.execute(
+            "
+            INSERT INTO favorites (id, target_type, target_id, favorited_at)
+            VALUES (?1, ?2, ?3, ?4)
+            ON CONFLICT(target_type, target_id)
+            DO UPDATE SET favorited_at = excluded.favorited_at
+            ",
+            params![Uuid::new_v4().to_string(), target_type, target_id, now],
+        )?;
+    } else {
+        conn.execute(
+            "DELETE FROM favorites WHERE target_type = ?1 AND target_id = ?2",
+            params![target_type, target_id],
+        )?;
+    }
+
+    Ok(())
+}
+
 fn get_collection_required(conn: &Connection, id: &str) -> AppResult<CollectionDto> {
     get_collection(conn, id)?.ok_or_else(|| AppError::new("not_found", "合集不存在"))
 }
@@ -1111,6 +1210,15 @@ mod tests {
 
         assert_eq!(updated.name, "Archive");
         assert!(updated.is_favorite);
+        assert_eq!(
+            conn.query_row(
+                "SELECT COUNT(*) FROM favorites WHERE target_type = 'collection' AND target_id = ?1",
+                params![collection.id],
+                |row| row.get::<_, i64>(0),
+            )
+            .unwrap(),
+            1
+        );
 
         let image = create_image(
             &conn,
@@ -1132,6 +1240,35 @@ mod tests {
 
         assert_eq!(image.file_name, "a.jpg");
         assert_eq!(image.extension, "jpg");
+
+        let updated = update_collection(
+            &conn,
+            UpdateCollectionRequest {
+                id: collection.id.clone(),
+                name: None,
+                description: Some("Updated description".to_string()),
+                rating: None,
+                is_favorite: None,
+                cover_image_id: Some(image.id.clone()),
+            },
+        )
+        .expect("collection cover should update");
+        assert_eq!(updated.description, "Updated description");
+        assert_eq!(updated.cover_image_id, Some(image.id.clone()));
+
+        let viewed = mark_collection_viewed(&conn, &collection.id)
+            .expect("collection view should be tracked");
+        assert_eq!(viewed.view_count, 1);
+        assert!(viewed.last_viewed_at.is_some());
+        assert_eq!(
+            conn.query_row(
+                "SELECT COUNT(*) FROM history WHERE target_type = 'collection' AND target_id = ?1",
+                params![collection.id],
+                |row| row.get::<_, i64>(0),
+            )
+            .unwrap(),
+            1
+        );
 
         let collection = get_collection_required(&conn, &collection.id).unwrap();
         assert_eq!(collection.image_count, 1);
@@ -1176,6 +1313,24 @@ mod tests {
         delete_collection_record(&conn, &collection.id)
             .expect("collection record should be deleted");
         assert!(get_collection(&conn, &collection.id).unwrap().is_none());
+        assert_eq!(
+            conn.query_row(
+                "SELECT COUNT(*) FROM favorites WHERE target_type = 'collection' AND target_id = ?1",
+                params![collection.id],
+                |row| row.get::<_, i64>(0),
+            )
+            .unwrap(),
+            0
+        );
+        assert_eq!(
+            conn.query_row(
+                "SELECT COUNT(*) FROM history WHERE target_type = 'collection' AND target_id = ?1",
+                params![collection.id],
+                |row| row.get::<_, i64>(0),
+            )
+            .unwrap(),
+            0
+        );
 
         drop(conn);
         let _ = fs::remove_file(path);

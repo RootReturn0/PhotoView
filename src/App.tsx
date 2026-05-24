@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import {
@@ -11,13 +11,16 @@ import {
   FolderPlus,
   Grid2X2,
   Images,
+  ImagePlus,
   Info,
   List,
   Maximize2,
   Pause,
+  Pencil,
   Play,
   RotateCw,
   Star,
+  Trash2,
   X,
   ZoomIn,
   ZoomOut,
@@ -55,6 +58,7 @@ type Collection = {
   id: string;
   path: string;
   name: string;
+  coverImageId: string | null;
   description: string;
   rating: number;
   isFavorite: boolean;
@@ -64,6 +68,12 @@ type Collection = {
   updatedAt: string;
   lastViewedAt: string | null;
   viewCount: number;
+};
+
+type CollectionDraft = {
+  name: string;
+  description: string;
+  rating: number;
 };
 
 type CollectionSortKey = "imported" | "name" | "images" | "size";
@@ -124,6 +134,13 @@ function App() {
   const [query, setQuery] = useState("");
   const [sortKey, setSortKey] = useState<CollectionSortKey>("imported");
   const [viewMode, setViewMode] = useState<CollectionViewMode>("grid");
+  const [isCollectionEditorOpen, setIsCollectionEditorOpen] = useState(false);
+  const [collectionDraft, setCollectionDraft] = useState<CollectionDraft>({
+    name: "",
+    description: "",
+    rating: 0,
+  });
+  const [isCollectionSaving, setIsCollectionSaving] = useState(false);
   const [viewerIndex, setViewerIndex] = useState<number | null>(null);
   const [viewerAsset, setViewerAsset] = useState<ViewerImageAsset | null>(null);
   const [viewerFitMode, setViewerFitMode] = useState<ViewerFitMode>("fit");
@@ -473,6 +490,157 @@ function App() {
     setSelectedCollectionId(collection.id);
     setNotice(null);
     setError(null);
+    if (isTauriRuntime()) {
+      void markCollectionViewed(collection.id);
+    }
+  }
+
+  async function markCollectionViewed(collectionId: string) {
+    try {
+      const collection = await invoke<Collection>("mark_collection_viewed", { id: collectionId });
+      updateCollectionState(collection);
+    } catch (value) {
+      setError(invokeErrorMessage(value));
+    }
+  }
+
+  function updateCollectionState(collection: Collection) {
+    setCollections((current) =>
+      current.map((item) => (item.id === collection.id ? collection : item)),
+    );
+  }
+
+  function openCollectionEditor(collection: Collection) {
+    setCollectionDraft({
+      name: collection.name,
+      description: collection.description,
+      rating: collection.rating,
+    });
+    setIsCollectionEditorOpen(true);
+    setError(null);
+    setNotice(null);
+  }
+
+  async function saveCollectionEditor(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!selectedCollection) {
+      return;
+    }
+
+    setIsCollectionSaving(true);
+    setError(null);
+    setNotice(null);
+
+    if (!isTauriRuntime()) {
+      setNotice("请在桌面应用中编辑合集");
+      setIsCollectionSaving(false);
+      return;
+    }
+
+    try {
+      const collection = await invoke<Collection>("update_collection", {
+        request: {
+          id: selectedCollection.id,
+          name: collectionDraft.name,
+          description: collectionDraft.description,
+          rating: collectionDraft.rating,
+        },
+      });
+      updateCollectionState(collection);
+      setIsCollectionEditorOpen(false);
+      setNotice("合集已保存");
+    } catch (value) {
+      setError(invokeErrorMessage(value));
+    } finally {
+      setIsCollectionSaving(false);
+    }
+  }
+
+  async function toggleCollectionFavorite(collection: Collection) {
+    setError(null);
+    setNotice(null);
+
+    if (!isTauriRuntime()) {
+      setNotice("请在桌面应用中收藏合集");
+      return;
+    }
+
+    try {
+      const updated = await invoke<Collection>("update_collection", {
+        request: {
+          id: collection.id,
+          isFavorite: !collection.isFavorite,
+        },
+      });
+      updateCollectionState(updated);
+      setNotice(updated.isFavorite ? "已收藏合集" : "已取消收藏");
+    } catch (value) {
+      setError(invokeErrorMessage(value));
+    }
+  }
+
+  async function setCollectionCover(image: ImageRecord) {
+    if (!selectedCollection) {
+      return;
+    }
+
+    setError(null);
+    setNotice(null);
+
+    if (!isTauriRuntime()) {
+      setNotice("请在桌面应用中设置封面");
+      return;
+    }
+
+    try {
+      const collection = await invoke<Collection>("update_collection", {
+        request: {
+          id: selectedCollection.id,
+          coverImageId: image.id,
+        },
+      });
+      updateCollectionState(collection);
+      setNotice("封面已更新");
+    } catch (value) {
+      setError(invokeErrorMessage(value));
+    }
+  }
+
+  async function deleteSelectedCollectionRecord() {
+    if (!selectedCollection) {
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `删除合集记录“${selectedCollection.name}”？磁盘文件夹不会被删除。`,
+    );
+    if (!confirmed) {
+      return;
+    }
+
+    setError(null);
+    setNotice(null);
+
+    if (!isTauriRuntime()) {
+      setNotice("请在桌面应用中删除合集记录");
+      return;
+    }
+
+    try {
+      await invoke("delete_collection_record", { id: selectedCollection.id });
+      setSelectedCollectionId(null);
+      setImages([]);
+      setThumbnails({});
+      setThumbnailErrors({});
+      thumbnailRequests.current.clear();
+      setCollections((current) =>
+        current.filter((collection) => collection.id !== selectedCollection.id),
+      );
+      await refreshStatus();
+      setNotice("合集记录已删除，磁盘文件夹已保留");
+    } catch (value) {
+      setError(invokeErrorMessage(value));
+    }
   }
 
   function openViewer(index: number) {
@@ -596,7 +764,40 @@ function App() {
                   <ArrowLeft size={16} aria-hidden="true" />
                 </button>
                 <h1>{selectedCollection.name}</h1>
-                <span>{images.length} 张图片</span>
+                <div className="detail-actions">
+                  <span>{images.length} 张图片</span>
+                  <button
+                    aria-label={selectedCollection.isFavorite ? "取消收藏合集" : "收藏合集"}
+                    className="icon-button"
+                    title={selectedCollection.isFavorite ? "取消收藏合集" : "收藏合集"}
+                    type="button"
+                    onClick={() => void toggleCollectionFavorite(selectedCollection)}
+                  >
+                    <Star
+                      size={16}
+                      aria-hidden="true"
+                      fill={selectedCollection.isFavorite ? "currentColor" : "none"}
+                    />
+                  </button>
+                  <button
+                    aria-label="编辑合集"
+                    className="icon-button"
+                    title="编辑合集"
+                    type="button"
+                    onClick={() => openCollectionEditor(selectedCollection)}
+                  >
+                    <Pencil size={16} aria-hidden="true" />
+                  </button>
+                  <button
+                    aria-label="删除合集记录"
+                    className="icon-button danger"
+                    title="删除合集记录"
+                    type="button"
+                    onClick={() => void deleteSelectedCollectionRecord()}
+                  >
+                    <Trash2 size={16} aria-hidden="true" />
+                  </button>
+                </div>
               </div>
 
               <div className="detail-meta">
@@ -662,6 +863,22 @@ function App() {
                                 : "尺寸未知"}
                             </span>
                             <span>{formatBytes(image.sizeBytes)}</span>
+                            <button
+                              aria-label="设为封面"
+                              className="icon-button compact"
+                              title="设为封面"
+                              type="button"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                void setCollectionCover(image);
+                              }}
+                            >
+                              {selectedCollection.coverImageId === image.id ? (
+                                <Star size={14} aria-hidden="true" fill="currentColor" />
+                              ) : (
+                                <ImagePlus size={14} aria-hidden="true" />
+                              )}
+                            </button>
                           </div>
                         </article>
                       );
@@ -757,6 +974,22 @@ function App() {
                       </div>
                       <div className="collection-actions">
                         <button
+                          aria-label={collection.isFavorite ? "取消收藏合集" : "收藏合集"}
+                          className="icon-button"
+                          title={collection.isFavorite ? "取消收藏合集" : "收藏合集"}
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            void toggleCollectionFavorite(collection);
+                          }}
+                        >
+                          <Star
+                            size={16}
+                            aria-hidden="true"
+                            fill={collection.isFavorite ? "currentColor" : "none"}
+                          />
+                        </button>
+                        <button
                           aria-label="复制路径"
                           className="icon-button"
                           title="复制路径"
@@ -842,6 +1075,86 @@ function App() {
           </footer>
         </section>
       </section>
+
+      {isCollectionEditorOpen && selectedCollection ? (
+        <section className="modal-backdrop" role="presentation">
+          <form
+            aria-label="编辑合集"
+            className="collection-editor"
+            onSubmit={(event) => void saveCollectionEditor(event)}
+          >
+            <header>
+              <h2>编辑合集</h2>
+              <button
+                aria-label="关闭编辑"
+                className="icon-button"
+                title="关闭编辑"
+                type="button"
+                onClick={() => setIsCollectionEditorOpen(false)}
+              >
+                <X size={16} aria-hidden="true" />
+              </button>
+            </header>
+
+            <label>
+              <span>名称</span>
+              <input
+                required
+                value={collectionDraft.name}
+                onChange={(event) =>
+                  setCollectionDraft((current) => ({
+                    ...current,
+                    name: event.target.value,
+                  }))
+                }
+              />
+            </label>
+
+            <label>
+              <span>描述</span>
+              <textarea
+                rows={4}
+                value={collectionDraft.description}
+                onChange={(event) =>
+                  setCollectionDraft((current) => ({
+                    ...current,
+                    description: event.target.value,
+                  }))
+                }
+              />
+            </label>
+
+            <label>
+              <span>评分</span>
+              <input
+                max={5}
+                min={0}
+                type="number"
+                value={collectionDraft.rating}
+                onChange={(event) =>
+                  setCollectionDraft((current) => ({
+                    ...current,
+                    rating: Number(event.target.value),
+                  }))
+                }
+              />
+            </label>
+
+            <footer>
+              <button
+                className="secondary-action"
+                type="button"
+                onClick={() => setIsCollectionEditorOpen(false)}
+              >
+                取消
+              </button>
+              <button className="primary-action" disabled={isCollectionSaving} type="submit">
+                {isCollectionSaving ? "保存中" : "保存"}
+              </button>
+            </footer>
+          </form>
+        </section>
+      ) : null}
 
       {activeImage ? (
         <section
