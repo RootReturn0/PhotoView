@@ -39,6 +39,26 @@ button {
   min-height: 100vh;
 }
 
+.app-shell[data-theme="dark"] {
+  background: #151a20;
+  color: #eef3f8;
+}
+
+.app-shell[data-theme="dark"] .sidebar,
+.app-shell[data-theme="dark"] .toolbar,
+.app-shell[data-theme="dark"] .collection-card,
+.app-shell[data-theme="dark"] .detail-meta,
+.app-shell[data-theme="dark"] .image-surface,
+.app-shell[data-theme="dark"] .empty-state,
+.app-shell[data-theme="dark"] .settings-panel,
+.app-shell[data-theme="dark"] .advanced-search,
+.app-shell[data-theme="dark"] .search-results,
+.app-shell[data-theme="dark"] .duplicate-results {
+  border-color: #334150;
+  background: #1f2833;
+  color: #eef3f8;
+}
+
 .sidebar {
   display: flex;
   flex-direction: column;
@@ -161,7 +181,8 @@ nav {
   font-size: 0.9rem;
 }
 
-.advanced-search {
+.advanced-search,
+.settings-panel {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap: 10px;
@@ -171,7 +192,8 @@ nav {
   padding: 12px;
 }
 
-.advanced-search label {
+.advanced-search label,
+.settings-panel label {
   display: grid;
   gap: 6px;
   min-width: 0;
@@ -180,7 +202,9 @@ nav {
 }
 
 .advanced-search input,
-.advanced-search select {
+.advanced-search select,
+.settings-panel input,
+.settings-panel select {
   width: 100%;
   min-width: 0;
   border: 1px solid #cfd7e2;
@@ -193,6 +217,27 @@ nav {
 
 .advanced-search select[multiple] {
   min-height: 82px;
+}
+
+.settings-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 8px;
+}
+
+.settings-actions button {
+  border: 1px solid #c1ccd9;
+  border-radius: 7px;
+  background: #ffffff;
+  color: #2f3a46;
+  min-height: 34px;
+  padding: 6px 10px;
+}
+
+.settings-actions button:hover {
+  border-color: #8fa1b8;
+  background: #eef3f8;
 }
 
 .range-inputs {
@@ -736,10 +781,10 @@ nav {
   left: 0;
   right: 0;
   display: grid;
-  grid-template-columns: 28px 52px minmax(0, 1fr) minmax(260px, auto);
+  grid-template-columns: 28px var(--thumb-size, 52px) minmax(0, 1fr) minmax(260px, auto);
   gap: 12px;
   align-items: center;
-  height: 124px;
+  height: max(124px, calc(var(--thumb-size, 52px) + 72px));
   border-bottom: 1px solid #eef2f6;
   padding: 10px 12px;
 }
@@ -772,8 +817,8 @@ nav {
 
 .image-thumb-placeholder {
   display: grid;
-  width: 52px;
-  height: 52px;
+  width: var(--thumb-size, 52px);
+  height: var(--thumb-size, 52px);
   place-items: center;
   border-radius: 7px;
   background: #f0f4f8;

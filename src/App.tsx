@@ -1,4 +1,12 @@
-import { type DragEvent, type FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import {
+  type CSSProperties,
+  type DragEvent,
+  type FormEvent,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import {
@@ -119,6 +127,17 @@ type SearchResults = {
   tags: PhotoTag[];
 };
 
+type SettingRecord = {
+  key: string;
+  value: string;
+  updatedAt: string;
+};
+
+type DataFileResult = {
+  path: string;
+  message: string;
+};
+
 type DuplicateGroup = {
   id: string;
   kind: string;
@@ -194,6 +213,11 @@ function App() {
   const [duplicateResult, setDuplicateResult] = useState<DuplicateDetectionResult | null>(null);
   const [isDetectingDuplicates, setIsDetectingDuplicates] = useState(false);
   const [isAdvancedSearchOpen, setIsAdvancedSearchOpen] = useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [theme, setTheme] = useState("system");
+  const [language, setLanguage] = useState("zh-CN");
+  const [shortcutProfile, setShortcutProfile] = useState("default");
+  const [thumbnailSize, setThumbnailSize] = useState("192");
   const [searchFormats, setSearchFormats] = useState<string[]>([]);
   const [searchTagIds, setSearchTagIds] = useState<string[]>([]);
   const [searchMinWidth, setSearchMinWidth] = useState("");
@@ -441,6 +465,7 @@ function App() {
       refreshCollections(),
       refreshTags(),
       refreshCollectionTagAssignments(),
+      refreshSettings(),
     ]);
   }
 
@@ -488,6 +513,23 @@ function App() {
       setSelectedTagFilterId((current) =>
         current !== "all" && !nextTags.some((tag) => tag.id === current) ? "all" : current,
       );
+    } catch (value) {
+      setError(invokeErrorMessage(value));
+    }
+  }
+
+  async function refreshSettings() {
+    if (!isTauriRuntime()) {
+      return;
+    }
+
+    try {
+      const records = await invoke<SettingRecord[]>("get_settings");
+      const nextSettings = Object.fromEntries(records.map((setting) => [setting.key, setting.value]));
+      setTheme(nextSettings.theme ?? "system");
+      setLanguage(nextSettings.language ?? "zh-CN");
+      setShortcutProfile(nextSettings.shortcut_profile ?? "default");
+      setThumbnailSize(nextSettings.thumbnail_size ?? "192");
     } catch (value) {
       setError(invokeErrorMessage(value));
     }
@@ -578,7 +620,7 @@ function App() {
     try {
       const thumbnail = await invoke<Thumbnail>("get_thumbnail", {
         imageId,
-        targetSize: 192,
+        targetSize: clamp(Math.round(numberOrNull(thumbnailSize) ?? 192), 64, 512),
       });
 
       setThumbnails((current) => ({ ...current, [imageId]: thumbnail }));
@@ -676,6 +718,76 @@ function App() {
       setError(invokeErrorMessage(value));
     } finally {
       setIsSyncing(false);
+    }
+  }
+
+  async function savePreferences() {
+    setError(null);
+    setNotice(null);
+
+    if (!isTauriRuntime()) {
+      setNotice("请在桌面应用中保存设置");
+      return;
+    }
+
+    try {
+      await Promise.all([
+        saveSetting("theme", theme),
+        saveSetting("language", language),
+        saveSetting("shortcut_profile", shortcutProfile),
+        saveSetting("thumbnail_size", thumbnailSize),
+      ]);
+      setNotice("设置已保存");
+    } catch (value) {
+      setError(invokeErrorMessage(value));
+    }
+  }
+
+  async function saveSetting(key: string, value: string) {
+    const setting = await invoke<SettingRecord>("update_setting", {
+      request: { key, value },
+    });
+    return setting;
+  }
+
+  async function runDataTool(command: "backup_database" | "rebuild_index" | "export_library_data") {
+    setError(null);
+    setNotice(null);
+
+    if (!isTauriRuntime()) {
+      setNotice("请在桌面应用中使用数据工具");
+      return;
+    }
+
+    try {
+      const result = await invoke<DataFileResult>(command);
+      await refreshAppData();
+      setNotice(result.path ? `${result.message}：${result.path}` : result.message);
+    } catch (value) {
+      setError(invokeErrorMessage(value));
+    }
+  }
+
+  async function restoreDatabase() {
+    const path = window.prompt("备份数据库路径")?.trim();
+    if (!path || !window.confirm("恢复会覆盖当前数据库，继续？")) {
+      return;
+    }
+
+    setError(null);
+    setNotice(null);
+
+    if (!isTauriRuntime()) {
+      setNotice("请在桌面应用中恢复数据库");
+      return;
+    }
+
+    try {
+      const result = await invoke<DataFileResult>("restore_database_from_backup", { path });
+      await refreshAppData();
+      setNotice(result.message);
+    } catch (value) {
+      setError(invokeErrorMessage(value));
     }
   }
 
@@ -1681,7 +1793,7 @@ function App() {
   }
 
   return (
-    <main className="app-shell">
+    <main className="app-shell" data-theme={theme} style={appShellStyle(thumbnailSize)}>
       <aside className="sidebar" aria-label="PhotoView navigation">
         <div className="brand">
           <span className="brand-mark">PV</span>
@@ -1746,6 +1858,15 @@ function App() {
           >
             <RotateCw size={16} aria-hidden="true" />
             <span>{isSyncing ? "同步中" : "同步"}</span>
+          </button>
+          <button
+            className="secondary-action"
+            type="button"
+            aria-pressed={isSettingsOpen}
+            onClick={() => setIsSettingsOpen((current) => !current)}
+          >
+            <Info size={16} aria-hidden="true" />
+            <span>设置</span>
           </button>
           <button
             className="primary-action"
@@ -1905,6 +2026,64 @@ function App() {
                   <option value="plain">未收藏</option>
                 </select>
               </label>
+            </section>
+          ) : null}
+
+          {isSettingsOpen ? (
+            <section className="settings-panel" aria-label="设置">
+              <label>
+                <span>主题</span>
+                <select value={theme} onChange={(event) => setTheme(event.target.value)}>
+                  <option value="system">系统</option>
+                  <option value="light">浅色</option>
+                  <option value="dark">深色</option>
+                </select>
+              </label>
+              <label>
+                <span>语言</span>
+                <select value={language} onChange={(event) => setLanguage(event.target.value)}>
+                  <option value="zh-CN">简体中文</option>
+                  <option value="en-US">English</option>
+                </select>
+              </label>
+              <label>
+                <span>快捷键</span>
+                <select
+                  value={shortcutProfile}
+                  onChange={(event) => setShortcutProfile(event.target.value)}
+                >
+                  <option value="default">默认</option>
+                  <option value="vim">Vim</option>
+                  <option value="minimal">精简</option>
+                </select>
+              </label>
+              <label>
+                <span>缩略图</span>
+                <input
+                  max={512}
+                  min={64}
+                  type="number"
+                  value={thumbnailSize}
+                  onChange={(event) => setThumbnailSize(event.target.value)}
+                />
+              </label>
+              <div className="settings-actions">
+                <button type="button" onClick={() => void savePreferences()}>
+                  保存
+                </button>
+                <button type="button" onClick={() => void runDataTool("backup_database")}>
+                  备份
+                </button>
+                <button type="button" onClick={() => void restoreDatabase()}>
+                  恢复
+                </button>
+                <button type="button" onClick={() => void runDataTool("rebuild_index")}>
+                  重建
+                </button>
+                <button type="button" onClick={() => void runDataTool("export_library_data")}>
+                  导出
+                </button>
+              </div>
             </section>
           ) : null}
 
@@ -3076,6 +3255,12 @@ function numberOrNull(value: string): number | null {
 function megabytesToBytesOrNull(value: string): number | null {
   const number = numberOrNull(value);
   return number === null ? null : Math.round(number * 1024 * 1024);
+}
+
+function appShellStyle(thumbnailSize: string): CSSProperties {
+  return {
+    "--thumb-size": `${clamp(Math.round(numberOrNull(thumbnailSize) ?? 192), 64, 512)}px`,
+  } as CSSProperties;
 }
 
 function clamp(value: number, min: number, max: number): number {

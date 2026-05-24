@@ -265,6 +265,13 @@ pub struct DuplicateDetectionResult {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct DataFileResult {
+    pub path: String,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SettingDto {
     pub key: String,
     pub value: String,

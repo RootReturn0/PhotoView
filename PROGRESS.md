@@ -2,9 +2,9 @@
 
 ## Current
 
-- 阶段：阶段 4，高级功能。
-- 正在做：搜索、重复检测、文件监听已完成。
-- 下一步：实现设置与数据工具，包括主题、语言、快捷键、缩略图大小、备份/恢复/重建索引/导出。
+- 阶段：阶段 5，质量、性能与发布。
+- 正在做：阶段 4 高级功能已完成。
+- 下一步：推进性能优化、测试补充和跨平台打包发布配置。
 
 ## Done
 
@@ -62,6 +62,9 @@
 - 已实现文件同步：新增 `sync_collection`/`sync_all_collections`，同步时会扫描合集目录、入库新增图片、更新已有图片、将缺失路径标记为 missing 并刷新合集统计。
 - 已实现目录监听：应用启动后后台监听已导入合集目录，文件创建、修改、删除、重命名后自动同步并向前端发送 `library-synced` 事件；前端收到后刷新合集/图片列表。
 - 已完成本轮验证：`pnpm build` 通过，`cargo fmt` 后 `cargo test` 22 项通过，`pnpm tauri build --debug --bundles app` 通过，Playwright 桌面/移动同步入口无横向溢出。
+- 已实现设置与数据工具：主题、语言、快捷键方案、缩略图大小写入 settings 表；缩略图大小会影响新缩略图请求和列表显示变量。
+- 已实现数据库备份、恢复、重建索引和导出：备份使用 SQLite `VACUUM INTO`，恢复会替换当前数据库连接，重建索引会同步所有合集，导出会生成 JSON。
+- 已完成阶段 4 最后一轮验证：`pnpm build` 通过，`cargo fmt --check` 通过，`cargo test` 22 项通过，`pnpm tauri build --debug --bundles app` 通过，Playwright 桌面/移动设置面板无横向溢出。
 
 ## Blocked
 

@@ -4,13 +4,14 @@ use crate::{
     errors::{AppError, AppResult},
     models::{
         ClearThumbnailCacheResult, CollectionDto, CopyImageFileRequest, CreateCollectionRequest,
-        CreateImageRequest, CreateTagRequest, DeleteImageFileRequest, DuplicateDetectionRequest,
-        DuplicateDetectionResult, ImageDto, ImportCollectionRequest, ImportCollectionResult,
-        ListCollectionTagAssignmentsRequest, ListImageTagAssignmentsRequest, ListImagesRequest,
-        MoveImageFileRequest, RenameImageFileRequest, SearchLibraryRequest, SearchResultsDto,
-        SetTagAssignmentsRequest, SettingDto, TagAssignmentDto, TagDto, TaskDto,
-        ThumbnailCacheStatsDto, ThumbnailDto, ThumbnailTaskRequest, UpdateCollectionRequest,
-        UpdateImageRequest, UpdateSettingRequest, UpdateTagRequest, ViewerImageDto,
+        CreateImageRequest, CreateTagRequest, DataFileResult, DeleteImageFileRequest,
+        DuplicateDetectionRequest, DuplicateDetectionResult, ImageDto, ImportCollectionRequest,
+        ImportCollectionResult, ListCollectionTagAssignmentsRequest,
+        ListImageTagAssignmentsRequest, ListImagesRequest, MoveImageFileRequest,
+        RenameImageFileRequest, SearchLibraryRequest, SearchResultsDto, SetTagAssignmentsRequest,
+        SettingDto, TagAssignmentDto, TagDto, TaskDto, ThumbnailCacheStatsDto, ThumbnailDto,
+        ThumbnailTaskRequest, UpdateCollectionRequest, UpdateImageRequest, UpdateSettingRequest,
+        UpdateTagRequest, ViewerImageDto,
     },
     thumbs::{
         clear_thumbnail_cache as clear_thumbnail_cache_files, collect_thumbnail_cache_stats,
@@ -18,7 +19,8 @@ use crate::{
     },
     viewer::{get_or_create_viewer_image, ViewerImageRequest},
 };
-use std::path::Path;
+use chrono::Utc;
+use std::{fs, path::Path};
 use tauri::{AppHandle, Manager, State};
 
 #[tauri::command]
@@ -244,6 +246,87 @@ pub fn update_setting(
 }
 
 #[tauri::command]
+pub fn backup_database(state: State<'_, AppState>) -> AppResult<DataFileResult> {
+    fs::create_dir_all(&state.paths().backups_dir)?;
+    let path = state
+        .paths()
+        .backups_dir
+        .join(format!("photoview-backup-{}.sqlite", file_timestamp()));
+    let path_string = path.display().to_string();
+    state.with_db(|db| {
+        db.execute("VACUUM main INTO ?1", [&path_string])?;
+        Ok(())
+    })?;
+
+    Ok(DataFileResult {
+        path: path_string,
+        message: "数据库备份已创建".to_string(),
+    })
+}
+
+#[tauri::command]
+pub fn restore_database_from_backup(
+    state: State<'_, AppState>,
+    path: String,
+) -> AppResult<DataFileResult> {
+    let backup_path = Path::new(&path);
+    state.restore_database_from_backup(backup_path)?;
+    Ok(DataFileResult {
+        path,
+        message: "数据库已从备份恢复".to_string(),
+    })
+}
+
+#[tauri::command]
+pub fn rebuild_index(state: State<'_, AppState>) -> AppResult<DataFileResult> {
+    let results = state.with_db_mut(repositories::sync_all_collections)?;
+    Ok(DataFileResult {
+        path: String::new(),
+        message: format!("索引已重建：同步 {} 个合集", results.len()),
+    })
+}
+
+#[tauri::command]
+pub fn export_library_data(state: State<'_, AppState>) -> AppResult<DataFileResult> {
+    fs::create_dir_all(&state.paths().exports_dir)?;
+    let path = state
+        .paths()
+        .exports_dir
+        .join(format!("photoview-export-{}.json", file_timestamp()));
+    let export = state.with_db(|db| {
+        Ok(serde_json::json!({
+            "collections": repositories::list_collections(db)?,
+            "images": repositories::list_images(db, ListImagesRequest {
+                collection_id: None,
+                limit: Some(1000),
+                offset: Some(0),
+            })?,
+            "tags": repositories::list_tags(db)?,
+            "collectionTags": repositories::list_collection_tag_assignments(
+                db,
+                ListCollectionTagAssignmentsRequest { collection_id: None },
+            )?,
+            "imageTags": repositories::list_image_tag_assignments(
+                db,
+                ListImageTagAssignmentsRequest {
+                    collection_id: None,
+                    image_id: None,
+                },
+            )?,
+            "settings": repositories::list_settings(db)?,
+        }))
+    })?;
+    let bytes = serde_json::to_vec_pretty(&export)
+        .map_err(|value| AppError::internal(value.to_string()))?;
+    fs::write(&path, bytes)?;
+
+    Ok(DataFileResult {
+        path: path.display().to_string(),
+        message: "图库数据已导出".to_string(),
+    })
+}
+
+#[tauri::command]
 pub fn get_thumbnail(
     state: State<'_, AppState>,
     image_id: String,
@@ -421,4 +504,8 @@ fn optional_dimension_to_u32(value: Option<i64>) -> u32 {
     value
         .and_then(|value| u32::try_from(value).ok())
         .unwrap_or(0)
+}
+
+fn file_timestamp() -> String {
+    Utc::now().format("%Y%m%d-%H%M%S").to_string()
 }

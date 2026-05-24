@@ -12,12 +12,13 @@ mod viewer;
 mod watcher;
 
 use commands::data::{
-    clear_thumbnail_cache, copy_image_file, create_collection, create_image, create_tag,
-    delete_collection_record, delete_image_file, delete_image_record, delete_tag,
-    enqueue_thumbnail_generation, get_collection, get_image, get_setting, get_settings, get_tag,
-    get_task, get_thumbnail, get_thumbnail_cache_stats, get_viewer_image, import_collection,
-    list_collection_tag_assignments, list_collections, list_image_tag_assignments, list_images,
-    list_tags, mark_collection_viewed, move_image_file, rename_image_file, run_duplicate_detection,
+    backup_database, clear_thumbnail_cache, copy_image_file, create_collection, create_image,
+    create_tag, delete_collection_record, delete_image_file, delete_image_record, delete_tag,
+    enqueue_thumbnail_generation, export_library_data, get_collection, get_image, get_setting,
+    get_settings, get_tag, get_task, get_thumbnail, get_thumbnail_cache_stats, get_viewer_image,
+    import_collection, list_collection_tag_assignments, list_collections,
+    list_image_tag_assignments, list_images, list_tags, mark_collection_viewed, move_image_file,
+    rebuild_index, rename_image_file, restore_database_from_backup, run_duplicate_detection,
     search_library, set_collection_tags, set_image_tags, sync_all_collections, sync_collection,
     update_collection, update_image, update_setting, update_tag,
 };
@@ -99,6 +100,10 @@ pub fn run() {
             get_settings,
             get_setting,
             update_setting,
+            backup_database,
+            restore_database_from_backup,
+            rebuild_index,
+            export_library_data,
             get_thumbnail,
             enqueue_thumbnail_generation,
             get_task,

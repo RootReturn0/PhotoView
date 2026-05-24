@@ -5,7 +5,7 @@ use crate::{
 };
 use rusqlite::Connection;
 use serde::Serialize;
-use std::sync::Mutex;
+use std::{fs, path::Path, sync::Mutex};
 use tauri::{AppHandle, Runtime};
 
 pub struct AppState {
@@ -71,5 +71,21 @@ impl AppState {
 
     pub fn paths(&self) -> &AppPaths {
         &self.paths
+    }
+
+    pub fn restore_database_from_backup(&self, backup_path: &Path) -> AppResult<()> {
+        let replacement = db::open_database(backup_path)?;
+        drop(replacement);
+
+        let mut db = self
+            .db
+            .lock()
+            .map_err(|_| AppError::internal("database lock poisoned"))?;
+        let placeholder = Connection::open_in_memory()?;
+        let current = std::mem::replace(&mut *db, placeholder);
+        drop(current);
+        fs::copy(backup_path, &self.paths.database_path)?;
+        *db = db::open_database(&self.paths.database_path)?;
+        Ok(())
     }
 }
