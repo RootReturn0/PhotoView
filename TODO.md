@@ -18,9 +18,9 @@
 - [x] 数据库 subagent：设计 collections、images、tags、favorites、history、settings 表结构。
 - [x] 数据库 subagent：实现 schema migration。
 - [x] 数据库 subagent：实现 collections、images、tags、settings 基础 CRUD。
-- [ ] 文件扫描 subagent：实现文件夹导入和图片格式识别。
+- [x] 文件扫描 subagent：实现文件夹导入和图片格式识别。
 - [x] 文件扫描 subagent：实现图片元数据提取，包括文件大小、创建时间、分辨率、格式。
-- [ ] 文件扫描 subagent：实现增量扫描，避免重复入库。
+- [x] 文件扫描 subagent：实现增量扫描，避免重复入库。
 
 ## 阶段 2：核心浏览体验
 

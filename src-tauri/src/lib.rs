@@ -8,8 +8,9 @@ pub mod scanner;
 
 use commands::data::{
     create_collection, create_image, create_tag, delete_collection_record, delete_image_record,
-    delete_tag, get_collection, get_image, get_setting, get_settings, get_tag, list_collections,
-    list_images, list_tags, update_collection, update_image, update_setting, update_tag,
+    delete_tag, get_collection, get_image, get_setting, get_settings, get_tag, import_collection,
+    list_collections, list_images, list_tags, update_collection, update_image, update_setting,
+    update_tag,
 };
 use commands::system::{
     choose_import_folder, copy_path_to_clipboard, copy_text_to_clipboard, get_app_status,
@@ -38,6 +39,7 @@ pub fn run() {
             list_collections,
             get_collection,
             create_collection,
+            import_collection,
             update_collection,
             delete_collection_record,
             list_images,

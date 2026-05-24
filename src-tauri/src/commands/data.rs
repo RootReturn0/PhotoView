@@ -4,8 +4,8 @@ use crate::{
     errors::AppResult,
     models::{
         CollectionDto, CreateCollectionRequest, CreateImageRequest, CreateTagRequest, ImageDto,
-        ListImagesRequest, SettingDto, TagDto, UpdateCollectionRequest, UpdateImageRequest,
-        UpdateSettingRequest, UpdateTagRequest,
+        ImportCollectionRequest, ImportCollectionResult, ListImagesRequest, SettingDto, TagDto,
+        UpdateCollectionRequest, UpdateImageRequest, UpdateSettingRequest, UpdateTagRequest,
     },
 };
 use tauri::State;
@@ -26,6 +26,14 @@ pub fn create_collection(
     request: CreateCollectionRequest,
 ) -> AppResult<CollectionDto> {
     state.with_db(|db| repositories::create_collection(db, request))
+}
+
+#[tauri::command]
+pub fn import_collection(
+    state: State<'_, AppState>,
+    request: ImportCollectionRequest,
+) -> AppResult<ImportCollectionResult> {
+    state.with_db_mut(|db| repositories::import_collection(db, request))
 }
 
 #[tauri::command]

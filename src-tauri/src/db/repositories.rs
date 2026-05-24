@@ -2,13 +2,15 @@ use crate::{
     errors::{AppError, AppResult},
     models::{
         CollectionDto, CreateCollectionRequest, CreateImageRequest, CreateTagRequest, ImageDto,
-        ListImagesRequest, SettingDto, TagDto, UpdateCollectionRequest, UpdateImageRequest,
-        UpdateSettingRequest, UpdateTagRequest,
+        ImportCollectionRequest, ImportCollectionResult, ImportErrorDto, ListImagesRequest,
+        SettingDto, TagDto, UpdateCollectionRequest, UpdateImageRequest, UpdateSettingRequest,
+        UpdateTagRequest,
     },
+    scanner::{self, ScanCandidate},
 };
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use rusqlite::{params, Connection, OptionalExtension, Row};
-use std::path::Path;
+use std::{path::Path, time::SystemTime};
 use uuid::Uuid;
 
 const DEFAULT_TAG_COLOR: &str = "#4f7cff";
@@ -45,6 +47,73 @@ pub fn get_collection(conn: &Connection, id: &str) -> AppResult<Option<Collectio
     )
     .optional()
     .map_err(Into::into)
+}
+
+pub fn get_collection_by_path(conn: &Connection, path: &str) -> AppResult<Option<CollectionDto>> {
+    conn.query_row(
+        "
+        SELECT id, path, name, cover_image_id, description, rating, is_favorite,
+               image_count, total_size_bytes, created_at, imported_at, updated_at,
+               last_viewed_at, view_count
+        FROM collections
+        WHERE path = ?1 AND deleted_at IS NULL
+        ",
+        params![path],
+        collection_from_row,
+    )
+    .optional()
+    .map_err(Into::into)
+}
+
+pub fn import_collection(
+    conn: &mut Connection,
+    request: ImportCollectionRequest,
+) -> AppResult<ImportCollectionResult> {
+    let requested_path = require_text(request.path, "合集路径")?;
+    let root = Path::new(&requested_path);
+    let report = scanner::scan_directory(root)
+        .map_err(|value| AppError::new("scan_error", value.to_string()))?;
+    let root = std::fs::canonicalize(root)?;
+    let collection_path = path_to_string(&root);
+    let collection_name = request
+        .name
+        .map(|value| require_text(value, "合集名称"))
+        .transpose()?;
+
+    let tx = conn.transaction()?;
+    let collection = ensure_import_collection(&tx, &collection_path, collection_name)?;
+    let mut inserted_count = 0;
+    let mut updated_count = 0;
+
+    for candidate in &report.candidates {
+        match upsert_scanned_image(&tx, &collection.id, candidate)? {
+            UpsertOutcome::Inserted => inserted_count += 1,
+            UpsertOutcome::Updated => updated_count += 1,
+        }
+    }
+
+    refresh_collection_stats(&tx, &collection.id)?;
+    let collection = get_collection_required(&tx, &collection.id)?;
+    tx.commit()?;
+
+    let errors = report
+        .errors
+        .into_iter()
+        .map(|error| ImportErrorDto {
+            path: path_to_string(&error.path),
+            kind: error.kind.to_string(),
+            message: error.message,
+        })
+        .collect::<Vec<_>>();
+
+    Ok(ImportCollectionResult {
+        collection,
+        scanned_count: report.candidates.len() as i64,
+        inserted_count,
+        updated_count,
+        error_count: errors.len() as i64,
+        errors,
+    })
 }
 
 pub fn create_collection(
@@ -282,6 +351,132 @@ pub fn delete_image_record(conn: &Connection, id: &str) -> AppResult<()> {
     let affected = conn.execute("DELETE FROM images WHERE id = ?1", params![id])?;
     ensure_affected(affected, "图片不存在")?;
     refresh_collection_stats(conn, &image.collection_id)
+}
+
+enum UpsertOutcome {
+    Inserted,
+    Updated,
+}
+
+fn ensure_import_collection(
+    conn: &Connection,
+    path: &str,
+    name: Option<String>,
+) -> AppResult<CollectionDto> {
+    if let Some(collection) = get_collection_by_path(conn, path)? {
+        if let Some(name) = name {
+            conn.execute(
+                "
+                UPDATE collections
+                SET name = ?2, updated_at = ?3
+                WHERE id = ?1
+                ",
+                params![collection.id, name, now()],
+            )?;
+
+            return get_collection_required(conn, &collection.id);
+        }
+
+        return Ok(collection);
+    }
+
+    create_collection(
+        conn,
+        CreateCollectionRequest {
+            path: path.to_string(),
+            name,
+            description: None,
+            rating: None,
+        },
+    )
+}
+
+fn upsert_scanned_image(
+    conn: &Connection,
+    collection_id: &str,
+    candidate: &ScanCandidate,
+) -> AppResult<UpsertOutcome> {
+    let path = candidate
+        .path
+        .canonicalize()
+        .unwrap_or_else(|_| candidate.path.clone());
+    let path = path_to_string(&path);
+    let existing_id = conn
+        .query_row(
+            "SELECT id FROM images WHERE path = ?1",
+            params![&path],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()?;
+
+    let size_bytes = i64::try_from(candidate.size_bytes)
+        .map_err(|_| AppError::new("validation_error", "文件大小超出可支持范围"))?;
+    let width = candidate.width.map(i64::from);
+    let height = candidate.height.map(i64::from);
+    let created_at = system_time_to_string(candidate.created_at);
+    let modified_at = system_time_to_string(candidate.modified_at);
+    let now = now();
+
+    if let Some(id) = existing_id {
+        conn.execute(
+            "
+            UPDATE images
+            SET collection_id = ?2,
+                file_name = ?3,
+                extension = ?4,
+                format = ?5,
+                size_bytes = ?6,
+                width = ?7,
+                height = ?8,
+                created_at = ?9,
+                modified_at = ?10,
+                is_missing = 0,
+                updated_at = ?11
+            WHERE id = ?1
+            ",
+            params![
+                id,
+                collection_id,
+                &candidate.file_name,
+                &candidate.extension,
+                candidate.format.as_str(),
+                size_bytes,
+                width,
+                height,
+                created_at,
+                modified_at,
+                now
+            ],
+        )?;
+
+        return Ok(UpsertOutcome::Updated);
+    }
+
+    conn.execute(
+        "
+        INSERT INTO images (
+          id, collection_id, path, file_name, extension, format, size_bytes,
+          width, height, created_at, modified_at, imported_at, updated_at
+        )
+        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?12)
+        ",
+        params![
+            Uuid::new_v4().to_string(),
+            collection_id,
+            &path,
+            &candidate.file_name,
+            &candidate.extension,
+            candidate.format.as_str(),
+            size_bytes,
+            width,
+            height,
+            created_at,
+            modified_at,
+            now
+        ],
+    )?;
+
+    Ok(UpsertOutcome::Inserted)
 }
 
 pub fn list_tags(conn: &Connection) -> AppResult<Vec<TagDto>> {
@@ -539,6 +734,14 @@ fn default_collection_name(path: &str) -> String {
         .to_string()
 }
 
+fn path_to_string(path: &Path) -> String {
+    path.to_string_lossy().into_owned()
+}
+
+fn system_time_to_string(value: Option<SystemTime>) -> Option<String> {
+    value.map(|value| DateTime::<Utc>::from(value).to_rfc3339())
+}
+
 fn default_file_name(path: &str) -> AppResult<String> {
     Path::new(path)
         .file_name()
@@ -650,12 +853,19 @@ fn now() -> String {
 mod tests {
     use super::*;
     use crate::db;
+    use image::{Rgb, RgbImage};
     use std::{fs, path::PathBuf};
 
     fn temp_database() -> (PathBuf, Connection) {
         let path = std::env::temp_dir().join(format!("photoview-crud-{}.sqlite", Uuid::new_v4()));
         let conn = db::open_database(&path).expect("database should initialize");
         (path, conn)
+    }
+
+    fn temp_directory(name: &str) -> PathBuf {
+        let path = std::env::temp_dir().join(format!("photoview-{name}-{}", Uuid::new_v4()));
+        fs::create_dir_all(&path).expect("test directory should be created");
+        path
     }
 
     #[test]
@@ -806,5 +1016,66 @@ mod tests {
 
         drop(conn);
         let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn import_collection_scans_images_and_updates_existing_records() {
+        let (database_path, mut conn) = temp_database();
+        let import_dir = temp_directory("import");
+        let image_path = import_dir.join("first.png");
+        let broken_path = import_dir.join("broken.jpg");
+        write_png(&image_path, 9, 7);
+        fs::write(&broken_path, b"not an image").expect("broken fixture should be written");
+
+        let first = import_collection(
+            &mut conn,
+            ImportCollectionRequest {
+                path: import_dir.to_string_lossy().into_owned(),
+                name: Some("Import".to_string()),
+            },
+        )
+        .expect("collection should import");
+
+        assert_eq!(first.collection.name, "Import");
+        assert_eq!(first.scanned_count, 1);
+        assert_eq!(first.inserted_count, 1);
+        assert_eq!(first.updated_count, 0);
+        assert_eq!(first.error_count, 1);
+        assert_eq!(first.collection.image_count, 1);
+
+        let second = import_collection(
+            &mut conn,
+            ImportCollectionRequest {
+                path: import_dir.to_string_lossy().into_owned(),
+                name: None,
+            },
+        )
+        .expect("existing collection should incrementally update");
+
+        assert_eq!(second.inserted_count, 0);
+        assert_eq!(second.updated_count, 1);
+        assert_eq!(second.collection.image_count, 1);
+        assert_eq!(
+            list_images(
+                &conn,
+                ListImagesRequest {
+                    collection_id: Some(second.collection.id),
+                    limit: None,
+                    offset: None,
+                }
+            )
+            .unwrap()
+            .len(),
+            1
+        );
+
+        drop(conn);
+        let _ = fs::remove_file(database_path);
+        let _ = fs::remove_dir_all(import_dir);
+    }
+
+    fn write_png(path: &Path, width: u32, height: u32) {
+        let image = RgbImage::from_pixel(width, height, Rgb([8, 16, 32]));
+        image.save(path).expect("png fixture should be saved");
     }
 }

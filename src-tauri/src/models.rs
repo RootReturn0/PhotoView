@@ -30,6 +30,32 @@ pub struct CreateCollectionRequest {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct ImportCollectionRequest {
+    pub path: String,
+    pub name: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportCollectionResult {
+    pub collection: CollectionDto,
+    pub scanned_count: i64,
+    pub inserted_count: i64,
+    pub updated_count: i64,
+    pub error_count: i64,
+    pub errors: Vec<ImportErrorDto>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportErrorDto {
+    pub path: String,
+    pub kind: String,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct UpdateCollectionRequest {
     pub id: String,
     pub name: Option<String>,

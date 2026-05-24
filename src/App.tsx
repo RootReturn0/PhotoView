@@ -18,32 +18,60 @@ type AppStatus = {
   tag_count: number;
 };
 
+type ImportCollectionResult = {
+  collection: {
+    name: string;
+  };
+  scannedCount: number;
+  insertedCount: number;
+  updatedCount: number;
+  errorCount: number;
+};
+
 function App() {
   const [status, setStatus] = useState<AppStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [selectedImportPath, setSelectedImportPath] = useState<string | null>(null);
+  const [isImporting, setIsImporting] = useState(false);
 
   useEffect(() => {
+    refreshStatus();
+  }, []);
+
+  async function refreshStatus() {
     invoke<AppStatus>("get_app_status")
       .then(setStatus)
       .catch((value) => setError(invokeErrorMessage(value)));
-  }, []);
+  }
 
   async function handleChooseImportFolder() {
     setError(null);
     setNotice(null);
+    setIsImporting(true);
 
     try {
       const folder = await invoke<string | null>("choose_import_folder");
       if (!folder) {
+        setIsImporting(false);
         return;
       }
 
       setSelectedImportPath(folder);
-      setNotice("已选择导入文件夹");
+      setNotice("正在导入文件夹");
+
+      const result = await invoke<ImportCollectionResult>("import_collection", {
+        request: { path: folder },
+      });
+
+      setNotice(
+        `${result.collection.name}：扫描 ${result.scannedCount} 张，新增 ${result.insertedCount} 张，更新 ${result.updatedCount} 张，错误 ${result.errorCount} 个`,
+      );
+      await refreshStatus();
     } catch (value) {
       setError(invokeErrorMessage(value));
+    } finally {
+      setIsImporting(false);
     }
   }
 
@@ -96,9 +124,15 @@ function App() {
       <section className="workspace">
         <header className="toolbar">
           <input aria-label="搜索" placeholder="搜索合集、图片或标签" />
-          <button className="primary-action" type="button" onClick={handleChooseImportFolder}>
+          <button
+            className="primary-action"
+            type="button"
+            disabled={isImporting}
+            aria-busy={isImporting}
+            onClick={handleChooseImportFolder}
+          >
             <FolderPlus size={16} aria-hidden="true" />
-            <span>导入</span>
+            <span>{isImporting ? "导入中" : "导入"}</span>
           </button>
         </header>
 

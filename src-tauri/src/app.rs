@@ -59,4 +59,13 @@ impl AppState {
 
         f(&db)
     }
+
+    pub fn with_db_mut<T>(&self, f: impl FnOnce(&mut Connection) -> AppResult<T>) -> AppResult<T> {
+        let mut db = self
+            .db
+            .lock()
+            .map_err(|_| AppError::internal("database lock poisoned"))?;
+
+        f(&mut db)
+    }
 }

@@ -123,6 +123,11 @@ nav {
   min-height: 40px;
 }
 
+.toolbar button:disabled {
+  cursor: progress;
+  opacity: 0.72;
+}
+
 .content {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto auto;

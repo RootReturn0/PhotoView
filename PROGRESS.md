@@ -3,8 +3,8 @@
 ## Current
 
 - 阶段：阶段 1，基础工程。
-- 正在做：应用初始化、SQLite schema migration、系统能力、基础 CRUD 和图片元数据扫描模块已完成。
-- 下一步：实现文件夹导入入库、图片格式识别接入 CRUD、增量扫描避免重复入库。
+- 正在做：应用初始化、SQLite schema migration、系统能力、基础 CRUD、图片扫描和导入入库已完成。
+- 下一步：完成窗口、菜单、应用图标和基础权限配置，收尾阶段 1。
 
 ## Done
 
@@ -26,6 +26,7 @@
 - 已实现 `choose_import_folder`、`open_path_in_file_manager`、`copy_text_to_clipboard`、`copy_path_to_clipboard` 系统 command，并在前端导入按钮中接入文件夹选择、复制路径和打开所在位置。
 - 已实现 collections、images、tags、settings 基础 CRUD repository 和 Tauri command，并补充 Rust 单元测试。
 - 已新增 `scanner` 模块，支持 jpg/jpeg、png、gif、bmp、ico、tiff/tif、webp、avif、svg 识别，递归扫描不跟随符号链接，并提取文件大小、创建时间、修改时间、分辨率和格式；异常图片返回结构化错误。
+- 已实现 `import_collection` command：选择文件夹后扫描入库，重复路径执行更新，避免重复入库，并刷新合集图片数量和总大小。
 - 已完成本轮验证：`pnpm build` 通过，`cargo test` 通过，`cargo fmt --check` 通过。
 
 ## Blocked
