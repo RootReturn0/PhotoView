@@ -64,10 +64,10 @@
 
 ## 阶段 5：质量、性能与发布
 
-- [ ] 性能 subagent：优化万级图片缩略图虚拟滚动。
-- [ ] 性能 subagent：优化导入性能，目标 1000 张图片小于 30 秒。
-- [ ] 性能 subagent：优化已缓存图片打开速度，目标小于 200ms。
-- [ ] 性能 subagent：控制大图浏览内存占用，避免崩溃。
+- [x] 性能 subagent：优化万级图片缩略图虚拟滚动。
+- [x] 性能 subagent：优化导入性能，目标 1000 张图片小于 30 秒。
+- [x] 性能 subagent：优化已缓存图片打开速度，目标小于 200ms。
+- [x] 性能 subagent：控制大图浏览内存占用，避免崩溃。
 - [ ] QA subagent：补充 Rust 单元测试和 Tauri command 测试。
 - [ ] QA subagent：补充前端组件测试和关键交互测试。
 - [ ] QA subagent：执行 Windows、macOS、Linux 冒烟测试。

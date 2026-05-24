@@ -18,7 +18,7 @@ use uuid::Uuid;
 
 const DEFAULT_TAG_COLOR: &str = "#4f7cff";
 const DEFAULT_PAGE_LIMIT: i64 = 200;
-const MAX_PAGE_LIMIT: i64 = 1000;
+const MAX_PAGE_LIMIT: i64 = 20_000;
 
 pub fn list_collections(conn: &Connection) -> AppResult<Vec<CollectionDto>> {
     let mut stmt = conn.prepare(

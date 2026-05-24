@@ -298,7 +298,7 @@ pub fn export_library_data(state: State<'_, AppState>) -> AppResult<DataFileResu
             "collections": repositories::list_collections(db)?,
             "images": repositories::list_images(db, ListImagesRequest {
                 collection_id: None,
-                limit: Some(1000),
+                limit: Some(20_000),
                 offset: Some(0),
             })?,
             "tags": repositories::list_tags(db)?,

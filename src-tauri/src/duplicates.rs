@@ -25,7 +25,7 @@ pub fn run_duplicate_detection(
         conn,
         ListImagesRequest {
             collection_id: request.collection_id,
-            limit: Some(1000),
+            limit: Some(20_000),
             offset: Some(0),
         },
     )?;

@@ -312,7 +312,7 @@ function App() {
   const imageVirtualizer = useVirtualizer({
     count: visibleImages.length,
     getScrollElement: () => imageListRef.current,
-    estimateSize: () => 124,
+    estimateSize: () => Math.max(124, Math.round(numberOrNull(thumbnailSize) ?? 192) + 72),
     overscan: 8,
   });
 
@@ -526,10 +526,10 @@ function App() {
     try {
       const records = await invoke<SettingRecord[]>("get_settings");
       const nextSettings = Object.fromEntries(records.map((setting) => [setting.key, setting.value]));
-      setTheme(nextSettings.theme ?? "system");
-      setLanguage(nextSettings.language ?? "zh-CN");
-      setShortcutProfile(nextSettings.shortcut_profile ?? "default");
-      setThumbnailSize(nextSettings.thumbnail_size ?? "192");
+      setTheme(settingValue(nextSettings.theme, "system"));
+      setLanguage(settingValue(nextSettings.language, "zh-CN"));
+      setShortcutProfile(settingValue(nextSettings.shortcut_profile, "default"));
+      setThumbnailSize(settingValue(nextSettings.thumbnail_size, "192"));
     } catch (value) {
       setError(invokeErrorMessage(value));
     }
@@ -580,7 +580,7 @@ function App() {
     try {
       const [nextImages, nextImageTagAssignments] = await Promise.all([
         invoke<ImageRecord[]>("list_images", {
-          request: { collectionId, limit: 1000, offset: 0 },
+          request: { collectionId, limit: 10000, offset: 0 },
         }),
         invoke<TagAssignment[]>("list_image_tag_assignments", {
           request: { collectionId, imageId: null },
@@ -3250,6 +3250,19 @@ function numberOrNull(value: string): number | null {
 
   const number = Number(trimmed);
   return Number.isFinite(number) ? number : null;
+}
+
+function settingValue(value: string | undefined, fallback: string): string {
+  if (!value) {
+    return fallback;
+  }
+
+  try {
+    const parsed = JSON.parse(value);
+    return typeof parsed === "string" ? parsed : value;
+  } catch {
+    return value;
+  }
 }
 
 function megabytesToBytesOrNull(value: string): number | null {
