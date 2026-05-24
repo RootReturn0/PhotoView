@@ -66,9 +66,9 @@ macOS 额外依赖 / Additional macOS requirements:
 xcode-select --install
 ```
 
-完整 DMG 打包、签名和公证需要完整 Xcode、Apple Developer 账号和对应证书。
+正式签名和公证需要 Apple Developer 账号和对应证书；没有证书时，CI 会生成 ad-hoc signed 的 macOS 构建。
 
-Full DMG packaging, code signing, and notarization require full Xcode, an Apple Developer account, and the required certificates.
+Official code signing and notarization require an Apple Developer account and the required certificates. Without certificates, CI produces ad-hoc signed macOS builds.
 
 Windows 额外依赖 / Additional Windows requirements:
 
@@ -159,8 +159,8 @@ macOS:
 2. Open the `.dmg` and drag `PhotoView.app` into `Applications`.
 3. 使用 `.app` 时直接放入 `Applications` 或任意目录。
 4. If using the `.app` bundle directly, place it in `Applications` or any folder.
-5. 未签名构建首次启动可能被 Gatekeeper 拦截，可右键应用选择“打开”。
-6. Unsigned builds may be blocked by Gatekeeper on first launch; right-click the app and choose Open.
+5. 未公证或 ad-hoc signed 构建首次启动可能被 Gatekeeper 拦截，可右键应用选择“打开”。
+6. Non-notarized or ad-hoc signed builds may be blocked by Gatekeeper on first launch; right-click the app and choose Open.
 
 Windows:
 
@@ -237,9 +237,9 @@ After generation, import `fixtures/bench-1000` in the desktop app to measure imp
 - Windows: `nsis`, `msi`
 - Linux: `deb`, `appimage`
 
-代码签名、公证和自动更新签名已预留配置，但需要在 GitHub Secrets 中补充证书、Apple 账号、Windows 证书和 `TAURI_SIGNING_PRIVATE_KEY` 等敏感信息。
+macOS workflow 会在存在 `APPLE_CERTIFICATE` 等 secrets 时走正式签名；没有 Apple 证书时会使用 ad-hoc signing。Windows 代码签名和自动更新签名仍需要在 GitHub Secrets 中补充对应证书和 `TAURI_SIGNING_PRIVATE_KEY` 等敏感信息。
 
-Code signing, notarization, and updater signing are configured as placeholders, but they require certificates, Apple account credentials, Windows signing certificates, and secrets such as `TAURI_SIGNING_PRIVATE_KEY` in GitHub Secrets.
+The macOS workflow uses official signing when secrets such as `APPLE_CERTIFICATE` are available; otherwise it uses ad-hoc signing. Windows code signing and updater signing still require the matching certificates and secrets such as `TAURI_SIGNING_PRIVATE_KEY` in GitHub Secrets.
 
 ## 推荐 IDE / Recommended IDE
 

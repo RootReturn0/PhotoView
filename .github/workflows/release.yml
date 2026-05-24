@@ -12,6 +12,8 @@ jobs:
   build:
     name: Build ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
+    env:
+      HAS_APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE != '' }}
     strategy:
       fail-fast: false
       matrix:
@@ -69,15 +71,24 @@ jobs:
         run: cargo test --no-run
         working-directory: src-tauri
 
-      - name: Build installers
+      - name: Build signed macOS installers
+        if: runner.os == 'macOS' && env.HAS_APPLE_CERTIFICATE == 'true'
         env:
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: pnpm tauri build --bundles ${{ matrix.bundles }} --ci
+
+      - name: Build ad-hoc signed macOS installers
+        if: runner.os == 'macOS' && env.HAS_APPLE_CERTIFICATE != 'true'
+        env:
+          APPLE_SIGNING_IDENTITY: "-"
+        run: pnpm tauri build --bundles ${{ matrix.bundles }} --ci
+
+      - name: Build installers
+        if: runner.os != 'macOS'
         run: pnpm tauri build --bundles ${{ matrix.bundles }} --ci
 
       - uses: actions/upload-artifact@v4
