@@ -3,9 +3,11 @@ use crate::{
     models::{
         CollectionDto, CopyImageFileRequest, CreateCollectionRequest, CreateImageRequest,
         CreateTagRequest, DeleteImageFileRequest, ImageDto, ImportCollectionRequest,
-        ImportCollectionResult, ImportErrorDto, ListImagesRequest, MoveImageFileRequest,
-        RenameImageFileRequest, SettingDto, TagDto, TaskDto, UpdateCollectionRequest,
-        UpdateImageRequest, UpdateSettingRequest, UpdateTagRequest,
+        ImportCollectionResult, ImportErrorDto, ListCollectionTagAssignmentsRequest,
+        ListImageTagAssignmentsRequest, ListImagesRequest, MoveImageFileRequest,
+        RenameImageFileRequest, SetTagAssignmentsRequest, SettingDto, TagAssignmentDto, TagDto,
+        TaskDto, UpdateCollectionRequest, UpdateImageRequest, UpdateSettingRequest,
+        UpdateTagRequest,
     },
     scanner::{self, ScanCandidate},
 };
@@ -701,6 +703,126 @@ pub fn delete_tag(conn: &Connection, id: &str) -> AppResult<()> {
     ensure_affected(affected, "标签不存在")
 }
 
+pub fn list_collection_tag_assignments(
+    conn: &Connection,
+    request: ListCollectionTagAssignmentsRequest,
+) -> AppResult<Vec<TagAssignmentDto>> {
+    let collection_id = request
+        .collection_id
+        .map(|value| require_text(value, "合集 ID"))
+        .transpose()?;
+    if let Some(id) = &collection_id {
+        ensure_collection_exists(conn, id)?;
+    }
+
+    let mut stmt = conn.prepare(
+        "
+        SELECT ct.collection_id AS target_id, t.id, t.name, t.color, t.created_at, t.updated_at
+        FROM collection_tags ct
+        INNER JOIN tags t ON t.id = ct.tag_id
+        INNER JOIN collections c ON c.id = ct.collection_id
+        WHERE c.deleted_at IS NULL
+          AND (?1 IS NULL OR ct.collection_id = ?1)
+        ORDER BY t.name COLLATE NOCASE ASC
+        ",
+    )?;
+
+    let rows = collect_rows(stmt.query_map(params![collection_id], tag_assignment_from_row)?);
+    rows
+}
+
+pub fn set_collection_tags(
+    conn: &Connection,
+    request: SetTagAssignmentsRequest,
+) -> AppResult<Vec<TagDto>> {
+    let collection_id = require_text(request.target_id, "合集 ID")?;
+    ensure_collection_exists(conn, &collection_id)?;
+    let tag_ids = validate_tag_ids(conn, request.tag_ids)?;
+    let now = now();
+
+    let tx = conn.unchecked_transaction()?;
+    tx.execute(
+        "DELETE FROM collection_tags WHERE collection_id = ?1",
+        params![&collection_id],
+    )?;
+    for tag_id in tag_ids {
+        tx.execute(
+            "
+            INSERT INTO collection_tags (collection_id, tag_id, created_at)
+            VALUES (?1, ?2, ?3)
+            ",
+            params![&collection_id, &tag_id, &now],
+        )?;
+    }
+    tx.commit()?;
+
+    list_tags_for_collection(conn, &collection_id)
+}
+
+pub fn list_image_tag_assignments(
+    conn: &Connection,
+    request: ListImageTagAssignmentsRequest,
+) -> AppResult<Vec<TagAssignmentDto>> {
+    let collection_id = request
+        .collection_id
+        .map(|value| require_text(value, "合集 ID"))
+        .transpose()?;
+    let image_id = request
+        .image_id
+        .map(|value| require_text(value, "图片 ID"))
+        .transpose()?;
+    if let Some(id) = &collection_id {
+        ensure_collection_exists(conn, id)?;
+    }
+    if let Some(id) = &image_id {
+        get_image_required(conn, id)?;
+    }
+
+    let mut stmt = conn.prepare(
+        "
+        SELECT it.image_id AS target_id, t.id, t.name, t.color, t.created_at, t.updated_at
+        FROM image_tags it
+        INNER JOIN tags t ON t.id = it.tag_id
+        INNER JOIN images i ON i.id = it.image_id
+        WHERE (?1 IS NULL OR i.collection_id = ?1)
+          AND (?2 IS NULL OR it.image_id = ?2)
+        ORDER BY t.name COLLATE NOCASE ASC
+        ",
+    )?;
+
+    let rows =
+        collect_rows(stmt.query_map(params![collection_id, image_id], tag_assignment_from_row)?);
+    rows
+}
+
+pub fn set_image_tags(
+    conn: &Connection,
+    request: SetTagAssignmentsRequest,
+) -> AppResult<Vec<TagDto>> {
+    let image_id = require_text(request.target_id, "图片 ID")?;
+    get_image_required(conn, &image_id)?;
+    let tag_ids = validate_tag_ids(conn, request.tag_ids)?;
+    let now = now();
+
+    let tx = conn.unchecked_transaction()?;
+    tx.execute(
+        "DELETE FROM image_tags WHERE image_id = ?1",
+        params![&image_id],
+    )?;
+    for tag_id in tag_ids {
+        tx.execute(
+            "
+            INSERT INTO image_tags (image_id, tag_id, created_at)
+            VALUES (?1, ?2, ?3)
+            ",
+            params![&image_id, &tag_id, &now],
+        )?;
+    }
+    tx.commit()?;
+
+    list_tags_for_image(conn, &image_id)
+}
+
 pub fn list_settings(conn: &Connection) -> AppResult<Vec<SettingDto>> {
     let mut stmt = conn.prepare(
         "
@@ -1117,6 +1239,50 @@ fn get_tag_required(conn: &Connection, id: &str) -> AppResult<TagDto> {
     get_tag(conn, id)?.ok_or_else(|| AppError::new("not_found", "标签不存在"))
 }
 
+fn list_tags_for_collection(conn: &Connection, collection_id: &str) -> AppResult<Vec<TagDto>> {
+    let mut stmt = conn.prepare(
+        "
+        SELECT t.id, t.name, t.color, t.created_at, t.updated_at
+        FROM collection_tags ct
+        INNER JOIN tags t ON t.id = ct.tag_id
+        WHERE ct.collection_id = ?1
+        ORDER BY t.name COLLATE NOCASE ASC
+        ",
+    )?;
+
+    let rows = collect_rows(stmt.query_map(params![collection_id], tag_from_row)?);
+    rows
+}
+
+fn list_tags_for_image(conn: &Connection, image_id: &str) -> AppResult<Vec<TagDto>> {
+    let mut stmt = conn.prepare(
+        "
+        SELECT t.id, t.name, t.color, t.created_at, t.updated_at
+        FROM image_tags it
+        INNER JOIN tags t ON t.id = it.tag_id
+        WHERE it.image_id = ?1
+        ORDER BY t.name COLLATE NOCASE ASC
+        ",
+    )?;
+
+    let rows = collect_rows(stmt.query_map(params![image_id], tag_from_row)?);
+    rows
+}
+
+fn validate_tag_ids(conn: &Connection, tag_ids: Vec<String>) -> AppResult<Vec<String>> {
+    let mut unique = Vec::new();
+    for tag_id in tag_ids {
+        let tag_id = require_text(tag_id, "标签 ID")?;
+        if unique.iter().any(|current| current == &tag_id) {
+            continue;
+        }
+        get_tag_required(conn, &tag_id)?;
+        unique.push(tag_id);
+    }
+
+    Ok(unique)
+}
+
 fn ensure_affected(affected: usize, message: &str) -> AppResult<()> {
     if affected == 0 {
         return Err(AppError::new("not_found", message));
@@ -1176,6 +1342,13 @@ fn tag_from_row(row: &Row<'_>) -> rusqlite::Result<TagDto> {
         color: row.get("color")?,
         created_at: row.get("created_at")?,
         updated_at: row.get("updated_at")?,
+    })
+}
+
+fn tag_assignment_from_row(row: &Row<'_>) -> rusqlite::Result<TagAssignmentDto> {
+    Ok(TagAssignmentDto {
+        target_id: row.get("target_id")?,
+        tag: tag_from_row(row)?,
     })
 }
 
@@ -1575,6 +1748,101 @@ mod tests {
         assert_eq!(tag.name, "Trips");
         assert_eq!(list_tags(&conn).unwrap().len(), 1);
 
+        let second_tag = create_tag(
+            &conn,
+            CreateTagRequest {
+                name: "Family".to_string(),
+                color: Some("#4488cc".to_string()),
+            },
+        )
+        .expect("second tag should be created");
+        let collection_dir = temp_directory("tagged-collection");
+        let collection = create_collection(
+            &conn,
+            CreateCollectionRequest {
+                path: collection_dir.to_string_lossy().into_owned(),
+                name: Some("Tagged".to_string()),
+                description: None,
+                rating: None,
+            },
+        )
+        .expect("collection should be created");
+        let image = create_image(
+            &conn,
+            CreateImageRequest {
+                collection_id: collection.id.clone(),
+                path: collection_dir
+                    .join("one.png")
+                    .to_string_lossy()
+                    .into_owned(),
+                file_name: None,
+                extension: None,
+                format: None,
+                size_bytes: Some(0),
+                width: Some(8),
+                height: Some(8),
+                created_at: None,
+                modified_at: None,
+                sha256: None,
+            },
+        )
+        .expect("image should be created");
+
+        let collection_tags = set_collection_tags(
+            &conn,
+            SetTagAssignmentsRequest {
+                target_id: collection.id.clone(),
+                tag_ids: vec![tag.id.clone(), second_tag.id.clone(), tag.id.clone()],
+            },
+        )
+        .expect("collection tags should be assigned");
+        assert_eq!(collection_tags.len(), 2);
+        let collection_assignments = list_collection_tag_assignments(
+            &conn,
+            ListCollectionTagAssignmentsRequest {
+                collection_id: Some(collection.id.clone()),
+            },
+        )
+        .expect("collection tag assignments should list");
+        assert_eq!(collection_assignments.len(), 2);
+        assert!(collection_assignments
+            .iter()
+            .all(|assignment| assignment.target_id == collection.id));
+
+        let image_tags = set_image_tags(
+            &conn,
+            SetTagAssignmentsRequest {
+                target_id: image.id.clone(),
+                tag_ids: vec![second_tag.id.clone()],
+            },
+        )
+        .expect("image tags should be assigned");
+        assert_eq!(image_tags.len(), 1);
+        let image_assignments = list_image_tag_assignments(
+            &conn,
+            ListImageTagAssignmentsRequest {
+                collection_id: Some(collection.id.clone()),
+                image_id: None,
+            },
+        )
+        .expect("image tag assignments should list");
+        assert_eq!(image_assignments.len(), 1);
+        assert_eq!(image_assignments[0].target_id, image.id);
+
+        delete_tag(&conn, &second_tag.id).expect("second tag should be deleted");
+        assert_eq!(
+            list_image_tag_assignments(
+                &conn,
+                ListImageTagAssignmentsRequest {
+                    collection_id: Some(collection.id.clone()),
+                    image_id: None,
+                },
+            )
+            .unwrap()
+            .len(),
+            0
+        );
+
         let setting = update_setting(
             &conn,
             UpdateSettingRequest {
@@ -1592,6 +1860,7 @@ mod tests {
 
         drop(conn);
         let _ = fs::remove_file(path);
+        let _ = fs::remove_dir_all(collection_dir);
     }
 
     #[test]

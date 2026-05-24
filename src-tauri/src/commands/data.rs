@@ -5,10 +5,12 @@ use crate::{
     models::{
         ClearThumbnailCacheResult, CollectionDto, CopyImageFileRequest, CreateCollectionRequest,
         CreateImageRequest, CreateTagRequest, DeleteImageFileRequest, ImageDto,
-        ImportCollectionRequest, ImportCollectionResult, ListImagesRequest, MoveImageFileRequest,
-        RenameImageFileRequest, SettingDto, TagDto, TaskDto, ThumbnailCacheStatsDto, ThumbnailDto,
-        ThumbnailTaskRequest, UpdateCollectionRequest, UpdateImageRequest, UpdateSettingRequest,
-        UpdateTagRequest, ViewerImageDto,
+        ImportCollectionRequest, ImportCollectionResult, ListCollectionTagAssignmentsRequest,
+        ListImageTagAssignmentsRequest, ListImagesRequest, MoveImageFileRequest,
+        RenameImageFileRequest, SetTagAssignmentsRequest, SettingDto, TagAssignmentDto, TagDto,
+        TaskDto, ThumbnailCacheStatsDto, ThumbnailDto, ThumbnailTaskRequest,
+        UpdateCollectionRequest, UpdateImageRequest, UpdateSettingRequest, UpdateTagRequest,
+        ViewerImageDto,
     },
     thumbs::{
         clear_thumbnail_cache as clear_thumbnail_cache_files, collect_thumbnail_cache_stats,
@@ -160,6 +162,38 @@ pub fn update_tag(state: State<'_, AppState>, request: UpdateTagRequest) -> AppR
 #[tauri::command]
 pub fn delete_tag(state: State<'_, AppState>, id: String) -> AppResult<()> {
     state.with_db(|db| repositories::delete_tag(db, &id))
+}
+
+#[tauri::command]
+pub fn list_collection_tag_assignments(
+    state: State<'_, AppState>,
+    request: ListCollectionTagAssignmentsRequest,
+) -> AppResult<Vec<TagAssignmentDto>> {
+    state.with_db(|db| repositories::list_collection_tag_assignments(db, request))
+}
+
+#[tauri::command]
+pub fn set_collection_tags(
+    state: State<'_, AppState>,
+    request: SetTagAssignmentsRequest,
+) -> AppResult<Vec<TagDto>> {
+    state.with_db(|db| repositories::set_collection_tags(db, request))
+}
+
+#[tauri::command]
+pub fn list_image_tag_assignments(
+    state: State<'_, AppState>,
+    request: ListImageTagAssignmentsRequest,
+) -> AppResult<Vec<TagAssignmentDto>> {
+    state.with_db(|db| repositories::list_image_tag_assignments(db, request))
+}
+
+#[tauri::command]
+pub fn set_image_tags(
+    state: State<'_, AppState>,
+    request: SetTagAssignmentsRequest,
+) -> AppResult<Vec<TagDto>> {
+    state.with_db(|db| repositories::set_image_tags(db, request))
 }
 
 #[tauri::command]

@@ -14,8 +14,9 @@ use commands::data::{
     delete_collection_record, delete_image_file, delete_image_record, delete_tag,
     enqueue_thumbnail_generation, get_collection, get_image, get_setting, get_settings, get_tag,
     get_task, get_thumbnail, get_thumbnail_cache_stats, get_viewer_image, import_collection,
-    list_collections, list_images, list_tags, mark_collection_viewed, move_image_file,
-    rename_image_file, update_collection, update_image, update_setting, update_tag,
+    list_collection_tag_assignments, list_collections, list_image_tag_assignments, list_images,
+    list_tags, mark_collection_viewed, move_image_file, rename_image_file, set_collection_tags,
+    set_image_tags, update_collection, update_image, update_setting, update_tag,
 };
 use commands::system::{
     choose_import_folder, copy_path_to_clipboard, copy_text_to_clipboard, get_app_status,
@@ -83,6 +84,10 @@ pub fn run() {
             create_tag,
             update_tag,
             delete_tag,
+            list_collection_tag_assignments,
+            set_collection_tags,
+            list_image_tag_assignments,
+            set_image_tags,
             get_settings,
             get_setting,
             update_setting,

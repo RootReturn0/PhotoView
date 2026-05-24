@@ -21,6 +21,8 @@ import {
   Play,
   RotateCw,
   Star,
+  Tag as TagIcon,
+  Tags,
   Trash2,
   X,
   ZoomIn,
@@ -96,6 +98,19 @@ type ImageRecord = {
   isMissing: boolean;
 };
 
+type PhotoTag = {
+  id: string;
+  name: string;
+  color: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+type TagAssignment = {
+  targetId: string;
+  tag: PhotoTag;
+};
+
 type Thumbnail = {
   imageId: string;
   cachePath: string;
@@ -131,6 +146,10 @@ function App() {
   const [collectionsLoading, setCollectionsLoading] = useState(false);
   const [selectedCollectionId, setSelectedCollectionId] = useState<string | null>(null);
   const [images, setImages] = useState<ImageRecord[]>([]);
+  const [tags, setTags] = useState<PhotoTag[]>([]);
+  const [collectionTagMap, setCollectionTagMap] = useState<Record<string, PhotoTag[]>>({});
+  const [imageTagMap, setImageTagMap] = useState<Record<string, PhotoTag[]>>({});
+  const [selectedTagFilterId, setSelectedTagFilterId] = useState("all");
   const [selectedImageIds, setSelectedImageIds] = useState<Set<string>>(new Set());
   const [imageContextMenu, setImageContextMenu] = useState<ImageContextMenu | null>(null);
   const [draggedImageIds, setDraggedImageIds] = useState<string[]>([]);
@@ -171,7 +190,19 @@ function App() {
     [collections, selectedCollectionId],
   );
 
-  const activeImage = viewerIndex === null ? null : images[viewerIndex] ?? null;
+  const selectedCollectionTags = selectedCollection
+    ? collectionTagMap[selectedCollection.id] ?? []
+    : [];
+  const visibleImages = useMemo(() => {
+    if (selectedTagFilterId === "all") {
+      return images;
+    }
+
+    return images.filter((image) =>
+      (imageTagMap[image.id] ?? []).some((tag) => tag.id === selectedTagFilterId),
+    );
+  }, [imageTagMap, images, selectedTagFilterId]);
+  const activeImage = viewerIndex === null ? null : visibleImages[viewerIndex] ?? null;
   const selectedImages = useMemo(
     () => images.filter((image) => selectedImageIds.has(image.id)),
     [images, selectedImageIds],
@@ -190,7 +221,7 @@ function App() {
 
   const visibleCollections = useMemo(() => {
     const normalizedQuery = query.trim().toLocaleLowerCase();
-    const filtered = normalizedQuery
+    const textFiltered = normalizedQuery
       ? collections.filter((collection) =>
           [collection.name, collection.path, collection.description]
             .join(" ")
@@ -198,12 +229,18 @@ function App() {
             .includes(normalizedQuery),
         )
       : collections;
+    const filtered =
+      selectedTagFilterId === "all"
+        ? textFiltered
+        : textFiltered.filter((collection) =>
+            (collectionTagMap[collection.id] ?? []).some((tag) => tag.id === selectedTagFilterId),
+          );
 
     return [...filtered].sort((left, right) => compareCollections(left, right, sortKey));
-  }, [collections, query, sortKey]);
+  }, [collectionTagMap, collections, query, selectedTagFilterId, sortKey]);
 
   const imageVirtualizer = useVirtualizer({
-    count: images.length,
+    count: visibleImages.length,
     getScrollElement: () => imageListRef.current,
     estimateSize: () => 124,
     overscan: 8,
@@ -222,6 +259,7 @@ function App() {
 
     closeViewer();
     setImages([]);
+    setImageTagMap({});
     setSelectedImageIds(new Set());
     setImageContextMenu(null);
     setDraggedImageIds([]);
@@ -232,13 +270,13 @@ function App() {
   }, [selectedCollectionId]);
 
   useEffect(() => {
-    if (!isTauriRuntime() || images.length === 0) {
+    if (!isTauriRuntime() || visibleImages.length === 0) {
       return;
     }
 
     const visibleItems = imageVirtualizer.getVirtualItems();
     for (const item of visibleItems) {
-      const image = images[item.index];
+      const image = visibleImages[item.index];
       if (!image || thumbnails[image.id] || thumbnailErrors[image.id]) {
         continue;
       }
@@ -312,10 +350,10 @@ function App() {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [activeImage, images.length]);
+  }, [activeImage, visibleImages.length]);
 
   useEffect(() => {
-    if (!isSlideshowActive || !activeImage || images.length <= 1) {
+    if (!isSlideshowActive || !activeImage || visibleImages.length <= 1) {
       return;
     }
 
@@ -324,7 +362,7 @@ function App() {
     }, 2000);
 
     return () => window.clearInterval(timer);
-  }, [activeImage, images.length, isSlideshowActive]);
+  }, [activeImage, isSlideshowActive, visibleImages.length]);
 
   useEffect(() => {
     if (!imageContextMenu) {
@@ -340,7 +378,12 @@ function App() {
   }, [imageContextMenu]);
 
   async function refreshAppData() {
-    await Promise.all([refreshStatus(), refreshCollections()]);
+    await Promise.all([
+      refreshStatus(),
+      refreshCollections(),
+      refreshTags(),
+      refreshCollectionTagAssignments(),
+    ]);
   }
 
   async function refreshStatus() {
@@ -374,20 +417,77 @@ function App() {
     }
   }
 
+  async function refreshTags() {
+    if (!isTauriRuntime()) {
+      setTags([]);
+      setSelectedTagFilterId("all");
+      return;
+    }
+
+    try {
+      const nextTags = await invoke<PhotoTag[]>("list_tags");
+      setTags(nextTags);
+      setSelectedTagFilterId((current) =>
+        current !== "all" && !nextTags.some((tag) => tag.id === current) ? "all" : current,
+      );
+    } catch (value) {
+      setError(invokeErrorMessage(value));
+    }
+  }
+
+  async function refreshCollectionTagAssignments() {
+    if (!isTauriRuntime()) {
+      setCollectionTagMap({});
+      return;
+    }
+
+    try {
+      const assignments = await invoke<TagAssignment[]>("list_collection_tag_assignments", {
+        request: { collectionId: null },
+      });
+      setCollectionTagMap(groupTagAssignments(assignments));
+    } catch (value) {
+      setError(invokeErrorMessage(value));
+    }
+  }
+
+  async function refreshImageTagAssignments(collectionId: string) {
+    if (!isTauriRuntime()) {
+      setImageTagMap({});
+      return;
+    }
+
+    try {
+      const assignments = await invoke<TagAssignment[]>("list_image_tag_assignments", {
+        request: { collectionId, imageId: null },
+      });
+      setImageTagMap(groupTagAssignments(assignments));
+    } catch (value) {
+      setError(invokeErrorMessage(value));
+    }
+  }
+
   async function refreshImages(collectionId: string) {
     setImagesLoading(true);
 
     if (!isTauriRuntime()) {
       setImages([]);
+      setImageTagMap({});
       setImagesLoading(false);
       return;
     }
 
     try {
-      const nextImages = await invoke<ImageRecord[]>("list_images", {
-        request: { collectionId, limit: 1000, offset: 0 },
-      });
+      const [nextImages, nextImageTagAssignments] = await Promise.all([
+        invoke<ImageRecord[]>("list_images", {
+          request: { collectionId, limit: 1000, offset: 0 },
+        }),
+        invoke<TagAssignment[]>("list_image_tag_assignments", {
+          request: { collectionId, imageId: null },
+        }),
+      ]);
       setImages(nextImages);
+      setImageTagMap(groupTagAssignments(nextImageTagAssignments));
       setSelectedImageIds(new Set());
       setImageContextMenu(null);
       setDraggedImageIds([]);
@@ -649,6 +749,154 @@ function App() {
     }
   }
 
+  async function createTag() {
+    const name = window.prompt("标签名称")?.trim();
+    if (!name) {
+      return;
+    }
+
+    const color = window.prompt("标签颜色 #RRGGBB", "#4f7cff")?.trim();
+    if (color === undefined) {
+      return;
+    }
+
+    setError(null);
+    setNotice(null);
+
+    if (!isTauriRuntime()) {
+      setNotice("请在桌面应用中创建标签");
+      return;
+    }
+
+    try {
+      await invoke<PhotoTag>("create_tag", {
+        request: { name, color: color || null },
+      });
+      await refreshTags();
+      await refreshStatus();
+      setNotice("标签已创建");
+    } catch (value) {
+      setError(invokeErrorMessage(value));
+    }
+  }
+
+  async function editTag() {
+    const tag = chooseTag("编辑标签");
+    if (!tag) {
+      return;
+    }
+
+    const name = window.prompt("标签名称", tag.name)?.trim();
+    if (!name) {
+      return;
+    }
+
+    const color = window.prompt("标签颜色 #RRGGBB", tag.color)?.trim();
+    if (color === undefined) {
+      return;
+    }
+
+    setError(null);
+    setNotice(null);
+
+    if (!isTauriRuntime()) {
+      setNotice("请在桌面应用中编辑标签");
+      return;
+    }
+
+    try {
+      await invoke<PhotoTag>("update_tag", {
+        request: { id: tag.id, name, color: color || tag.color },
+      });
+      await refreshTags();
+      await refreshCollectionTagAssignments();
+      if (selectedCollectionId) {
+        await refreshImageTagAssignments(selectedCollectionId);
+      }
+      setNotice("标签已保存");
+    } catch (value) {
+      setError(invokeErrorMessage(value));
+    }
+  }
+
+  async function deleteTag() {
+    const tag = chooseTag("删除标签");
+    if (!tag || !window.confirm(`删除标签“${tag.name}”？关联会一并移除。`)) {
+      return;
+    }
+
+    setError(null);
+    setNotice(null);
+
+    if (!isTauriRuntime()) {
+      setNotice("请在桌面应用中删除标签");
+      return;
+    }
+
+    try {
+      await invoke("delete_tag", { id: tag.id });
+      await refreshTags();
+      await refreshCollectionTagAssignments();
+      if (selectedCollectionId) {
+        await refreshImageTagAssignments(selectedCollectionId);
+      }
+      await refreshStatus();
+      setNotice("标签已删除");
+    } catch (value) {
+      setError(invokeErrorMessage(value));
+    }
+  }
+
+  async function assignTagsToCollection(collection: Collection) {
+    const tagIds = chooseTagIds("设置合集标签", collectionTagMap[collection.id] ?? []);
+    if (tagIds === null) {
+      return;
+    }
+
+    setError(null);
+    setNotice(null);
+
+    if (!isTauriRuntime()) {
+      setNotice("请在桌面应用中设置合集标签");
+      return;
+    }
+
+    try {
+      const assignedTags = await invoke<PhotoTag[]>("set_collection_tags", {
+        request: { targetId: collection.id, tagIds },
+      });
+      setCollectionTagMap((current) => ({ ...current, [collection.id]: assignedTags }));
+      setNotice("合集标签已更新");
+    } catch (value) {
+      setError(invokeErrorMessage(value));
+    }
+  }
+
+  async function assignTagsToImage(image: ImageRecord) {
+    const tagIds = chooseTagIds("设置图片标签", imageTagMap[image.id] ?? []);
+    if (tagIds === null) {
+      return;
+    }
+
+    setError(null);
+    setNotice(null);
+
+    if (!isTauriRuntime()) {
+      setNotice("请在桌面应用中设置图片标签");
+      return;
+    }
+
+    try {
+      const assignedTags = await invoke<PhotoTag[]>("set_image_tags", {
+        request: { targetId: image.id, tagIds },
+      });
+      setImageTagMap((current) => ({ ...current, [image.id]: assignedTags }));
+      setNotice("图片标签已更新");
+    } catch (value) {
+      setError(invokeErrorMessage(value));
+    }
+  }
+
   async function renameImage(image: ImageRecord) {
     const fileName = window.prompt("新的文件名", image.fileName)?.trim();
     if (!fileName || fileName === image.fileName) {
@@ -746,6 +994,66 @@ function App() {
     }
 
     return candidates.find((collection) => collection.id === value) ?? null;
+  }
+
+  function chooseTag(title: string): PhotoTag | null {
+    if (tags.length === 0) {
+      setNotice("请先创建标签");
+      return null;
+    }
+
+    const options = tags.map((tag, index) => `${index + 1}. ${tag.name}`).join("\n");
+    const value = window.prompt(`${title}\n${options}`)?.trim();
+    if (!value) {
+      return null;
+    }
+
+    const index = Number(value);
+    if (Number.isInteger(index) && index >= 1 && index <= tags.length) {
+      return tags[index - 1];
+    }
+
+    return tags.find((tag) => tag.id === value) ?? null;
+  }
+
+  function chooseTagIds(title: string, currentTags: PhotoTag[]): string[] | null {
+    if (tags.length === 0) {
+      setNotice("请先创建标签");
+      return null;
+    }
+
+    const options = tags.map((tag, index) => `${index + 1}. ${tag.name}`).join("\n");
+    const currentValue = currentTags
+      .map((tag) => tags.findIndex((item) => item.id === tag.id) + 1)
+      .filter((index) => index > 0)
+      .join(", ");
+    const value = window.prompt(
+      `${title}\n${options}\n输入编号，用逗号分隔；留空清空标签。`,
+      currentValue,
+    );
+    if (value === null) {
+      return null;
+    }
+
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return [];
+    }
+
+    const tagIds: string[] = [];
+    for (const token of trimmed.split(/[,，\s]+/).filter(Boolean)) {
+      const index = Number(token);
+      const tag = Number.isInteger(index) ? tags[index - 1] : tags.find((item) => item.id === token);
+      if (!tag) {
+        setError(`无效标签：${token}`);
+        return null;
+      }
+      if (!tagIds.includes(tag.id)) {
+        tagIds.push(tag.id);
+      }
+    }
+
+    return tagIds;
   }
 
   function toggleImageSelection(imageId: string) {
@@ -878,6 +1186,43 @@ function App() {
     }
 
     await copyImagesToCollection(selectedImages, target);
+  }
+
+  async function batchSetImageTags() {
+    if (selectedImages.length === 0) {
+      return;
+    }
+
+    const tagIds = chooseTagIds("批量设置图片标签", imageTagMap[selectedImages[0].id] ?? []);
+    if (tagIds === null) {
+      return;
+    }
+
+    setError(null);
+    setNotice(null);
+
+    if (!isTauriRuntime()) {
+      setNotice("请在桌面应用中批量设置标签");
+      return;
+    }
+
+    const failed: string[] = [];
+    let updatedCount = 0;
+    for (const image of selectedImages) {
+      try {
+        const assignedTags = await invoke<PhotoTag[]>("set_image_tags", {
+          request: { targetId: image.id, tagIds },
+        });
+        setImageTagMap((current) => ({ ...current, [image.id]: assignedTags }));
+        updatedCount += 1;
+      } catch (value) {
+        failed.push(`${image.fileName}: ${invokeErrorMessage(value)}`);
+      }
+    }
+
+    clearImageSelection();
+    setNotice(`已设置 ${updatedCount} 张图片的标签`);
+    setError(failed.length > 0 ? failed.join("；") : null);
   }
 
   async function batchDeleteImages() {
@@ -1032,7 +1377,7 @@ function App() {
   }
 
   function openViewer(index: number) {
-    if (!images[index]) {
+    if (!visibleImages[index]) {
       return;
     }
 
@@ -1054,21 +1399,21 @@ function App() {
 
   function showPreviousImage() {
     setViewerIndex((current) => {
-      if (current === null || images.length === 0) {
+      if (current === null || visibleImages.length === 0) {
         return current;
       }
 
-      return current === 0 ? images.length - 1 : current - 1;
+      return current === 0 ? visibleImages.length - 1 : current - 1;
     });
   }
 
   function showNextImage() {
     setViewerIndex((current) => {
-      if (current === null || images.length === 0) {
+      if (current === null || visibleImages.length === 0) {
         return current;
       }
 
-      return current === images.length - 1 ? 0 : current + 1;
+      return current === visibleImages.length - 1 ? 0 : current + 1;
     });
   }
 
@@ -1153,7 +1498,11 @@ function App() {
                 </button>
                 <h1>{selectedCollection.name}</h1>
                 <div className="detail-actions">
-                  <span>{images.length} 张图片</span>
+                  <span>
+                    {selectedTagFilterId === "all"
+                      ? `${images.length} 张图片`
+                      : `${visibleImages.length}/${images.length} 张图片`}
+                  </span>
                   <button
                     aria-label={selectedCollection.isFavorite ? "取消收藏合集" : "收藏合集"}
                     className="icon-button"
@@ -1166,6 +1515,15 @@ function App() {
                       aria-hidden="true"
                       fill={selectedCollection.isFavorite ? "currentColor" : "none"}
                     />
+                  </button>
+                  <button
+                    aria-label="设置合集标签"
+                    className="icon-button"
+                    title="设置合集标签"
+                    type="button"
+                    onClick={() => void assignTagsToCollection(selectedCollection)}
+                  >
+                    <TagIcon size={16} aria-hidden="true" />
                   </button>
                   <button
                     aria-label="编辑合集"
@@ -1201,6 +1559,31 @@ function App() {
                 </button>
               </div>
 
+              <div className="detail-filter-controls">
+                <select
+                  aria-label="图片标签筛选"
+                  value={selectedTagFilterId}
+                  onChange={(event) => setSelectedTagFilterId(event.target.value)}
+                >
+                  <option value="all">全部标签</option>
+                  {tags.map((tag) => (
+                    <option key={tag.id} value={tag.id}>
+                      {tag.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {selectedCollectionTags.length > 0 ? (
+                <div className="tag-strip" aria-label="合集标签">
+                  {selectedCollectionTags.map((tag) => (
+                    <span className="tag-chip" key={tag.id} style={tagChipStyle(tag)}>
+                      {tag.name}
+                    </span>
+                  ))}
+                </div>
+              ) : null}
+
               {selectedImages.length > 0 ? (
                 <div className="batch-toolbar" aria-label="批量图片操作">
                   <span>已选 {selectedImages.length} 张</span>
@@ -1211,6 +1594,10 @@ function App() {
                   <button type="button" onClick={() => void batchCopyImages()}>
                     <Copy size={15} aria-hidden="true" />
                     <span>复制</span>
+                  </button>
+                  <button type="button" onClick={() => void batchSetImageTags()}>
+                    <TagIcon size={15} aria-hidden="true" />
+                    <span>标签</span>
                   </button>
                   <button type="button" onClick={() => void batchRateImages()}>
                     <Star size={15} aria-hidden="true" />
@@ -1262,13 +1649,13 @@ function App() {
                     <h2>加载中</h2>
                     <p>正在读取图片索引。</p>
                   </div>
-                ) : images.length > 0 ? (
+                ) : visibleImages.length > 0 ? (
                   <div
                     className="image-virtual-space"
                     style={{ height: `${imageVirtualizer.getTotalSize()}px` }}
                   >
                     {imageVirtualizer.getVirtualItems().map((virtualItem) => {
-                      const image = images[virtualItem.index];
+                      const image = visibleImages[virtualItem.index];
 
                       return (
                         <article
@@ -1325,6 +1712,19 @@ function App() {
                           <div className="image-row-main">
                             <h2>{image.fileName}</h2>
                             <p>{image.path}</p>
+                            {(imageTagMap[image.id] ?? []).length > 0 ? (
+                              <div className="tag-chip-row" aria-label="图片标签">
+                                {(imageTagMap[image.id] ?? []).map((tag) => (
+                                  <span
+                                    className="tag-chip compact"
+                                    key={tag.id}
+                                    style={tagChipStyle(tag)}
+                                  >
+                                    {tag.name}
+                                  </span>
+                                ))}
+                              </div>
+                            ) : null}
                           </div>
                           <div className="image-row-meta">
                             <span>{image.format}</span>
@@ -1334,6 +1734,18 @@ function App() {
                                 : "尺寸未知"}
                             </span>
                             <span>{formatBytes(image.sizeBytes)}</span>
+                            <button
+                              aria-label="设置图片标签"
+                              className="icon-button compact"
+                              title="设置图片标签"
+                              type="button"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                void assignTagsToImage(image);
+                              }}
+                            >
+                              <TagIcon size={14} aria-hidden="true" />
+                            </button>
                             <button
                               aria-label="设为封面"
                               className="icon-button compact"
@@ -1405,8 +1817,12 @@ function App() {
                   </div>
                 ) : (
                   <div className="empty-state">
-                    <h2>暂无图片</h2>
-                    <p>重新导入或检查文件夹权限后再试。</p>
+                    <h2>{images.length > 0 ? "没有匹配图片" : "暂无图片"}</h2>
+                    <p>
+                      {images.length > 0
+                        ? "调整标签筛选后再试。"
+                        : "重新导入或检查文件夹权限后再试。"}
+                    </p>
                   </div>
                 )}
               </section>
@@ -1423,35 +1839,78 @@ function App() {
               </div>
 
               <div className="collection-controls">
-                <select
-                  aria-label="合集排序"
-                  value={sortKey}
-                  onChange={(event) => setSortKey(event.target.value as CollectionSortKey)}
-                >
-                  <option value="imported">最近导入</option>
-                  <option value="name">名称</option>
-                  <option value="images">图片数量</option>
-                  <option value="size">占用空间</option>
-                </select>
-                <div className="segmented-control" aria-label="合集视图">
-                  <button
-                    aria-label="网格视图"
-                    className={viewMode === "grid" ? "active" : ""}
-                    title="网格视图"
-                    type="button"
-                    onClick={() => setViewMode("grid")}
+                <div className="collection-filter-controls">
+                  <select
+                    aria-label="合集排序"
+                    value={sortKey}
+                    onChange={(event) => setSortKey(event.target.value as CollectionSortKey)}
                   >
-                    <Grid2X2 size={16} aria-hidden="true" />
+                    <option value="imported">最近导入</option>
+                    <option value="name">名称</option>
+                    <option value="images">图片数量</option>
+                    <option value="size">占用空间</option>
+                  </select>
+                  <select
+                    aria-label="标签筛选"
+                    value={selectedTagFilterId}
+                    onChange={(event) => setSelectedTagFilterId(event.target.value)}
+                  >
+                    <option value="all">全部标签</option>
+                    {tags.map((tag) => (
+                      <option key={tag.id} value={tag.id}>
+                        {tag.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="collection-view-controls">
+                  <button
+                    aria-label="创建标签"
+                    className="icon-button"
+                    title="创建标签"
+                    type="button"
+                    onClick={() => void createTag()}
+                  >
+                    <Tags size={16} aria-hidden="true" />
                   </button>
                   <button
-                    aria-label="列表视图"
-                    className={viewMode === "list" ? "active" : ""}
-                    title="列表视图"
+                    aria-label="编辑标签"
+                    className="icon-button"
+                    title="编辑标签"
                     type="button"
-                    onClick={() => setViewMode("list")}
+                    onClick={() => void editTag()}
                   >
-                    <List size={16} aria-hidden="true" />
+                    <Pencil size={16} aria-hidden="true" />
                   </button>
+                  <button
+                    aria-label="删除标签"
+                    className="icon-button danger"
+                    title="删除标签"
+                    type="button"
+                    onClick={() => void deleteTag()}
+                  >
+                    <Trash2 size={16} aria-hidden="true" />
+                  </button>
+                  <div className="segmented-control" aria-label="合集视图">
+                    <button
+                      aria-label="网格视图"
+                      className={viewMode === "grid" ? "active" : ""}
+                      title="网格视图"
+                      type="button"
+                      onClick={() => setViewMode("grid")}
+                    >
+                      <Grid2X2 size={16} aria-hidden="true" />
+                    </button>
+                    <button
+                      aria-label="列表视图"
+                      className={viewMode === "list" ? "active" : ""}
+                      title="列表视图"
+                      type="button"
+                      onClick={() => setViewMode("list")}
+                    >
+                      <List size={16} aria-hidden="true" />
+                    </button>
+                  </div>
                 </div>
               </div>
 
@@ -1484,6 +1943,15 @@ function App() {
                           {collection.isFavorite ? <Star size={15} aria-label="已收藏" /> : null}
                         </div>
                         <p>{collection.path}</p>
+                        {(collectionTagMap[collection.id] ?? []).length > 0 ? (
+                          <div className="tag-chip-row" aria-label="合集标签">
+                            {(collectionTagMap[collection.id] ?? []).map((tag) => (
+                              <span className="tag-chip compact" key={tag.id} style={tagChipStyle(tag)}>
+                                {tag.name}
+                              </span>
+                            ))}
+                          </div>
+                        ) : null}
                         <div className="collection-meta">
                           <span>{collection.imageCount} 张</span>
                           <span>{formatBytes(collection.totalSizeBytes)}</span>
@@ -1507,6 +1975,18 @@ function App() {
                             aria-hidden="true"
                             fill={collection.isFavorite ? "currentColor" : "none"}
                           />
+                        </button>
+                        <button
+                          aria-label="设置合集标签"
+                          className="icon-button"
+                          title="设置合集标签"
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            void assignTagsToCollection(collection);
+                          }}
+                        >
+                          <TagIcon size={16} aria-hidden="true" />
                         </button>
                         <button
                           aria-label="复制路径"
@@ -1607,7 +2087,7 @@ function App() {
             type="button"
             onClick={() => {
               setImageContextMenu(null);
-              openViewer(images.indexOf(contextImage));
+              openViewer(visibleImages.indexOf(contextImage));
             }}
           >
             打开
@@ -1641,6 +2121,16 @@ function App() {
             }}
           >
             复制
+          </button>
+          <button
+            role="menuitem"
+            type="button"
+            onClick={() => {
+              setImageContextMenu(null);
+              void assignTagsToImage(contextImage);
+            }}
+          >
+            标签
           </button>
           <button
             role="menuitem"
@@ -1762,7 +2252,7 @@ function App() {
             <div className="viewer-title">
               <strong>{activeImage.fileName}</strong>
               <span>
-                {(viewerIndex ?? 0) + 1}/{images.length}
+                {(viewerIndex ?? 0) + 1}/{visibleImages.length}
               </span>
             </div>
             <div className="viewer-controls" aria-label="查看器工具栏">
@@ -1966,6 +2456,20 @@ function formatDate(value: string): string {
     hour: "2-digit",
     minute: "2-digit",
   }).format(new Date(value));
+}
+
+function groupTagAssignments(assignments: TagAssignment[]): Record<string, PhotoTag[]> {
+  return assignments.reduce<Record<string, PhotoTag[]>>((groups, assignment) => {
+    groups[assignment.targetId] = [...(groups[assignment.targetId] ?? []), assignment.tag];
+    return groups;
+  }, {});
+}
+
+function tagChipStyle(tag: PhotoTag) {
+  return {
+    borderColor: tag.color,
+    color: tag.color,
+  };
 }
 
 function clamp(value: number, min: number, max: number): number {

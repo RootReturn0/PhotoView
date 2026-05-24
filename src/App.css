@@ -162,13 +162,35 @@ nav {
   gap: 12px;
 }
 
-.collection-controls select {
+.collection-filter-controls,
+.collection-view-controls,
+.detail-filter-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.collection-filter-controls {
+  flex-wrap: wrap;
+}
+
+.collection-view-controls {
+  justify-content: flex-end;
+}
+
+.collection-controls select,
+.detail-filter-controls select {
   border: 1px solid #cfd7e2;
   border-radius: 7px;
   background: #ffffff;
   color: #2f3a46;
   min-height: 36px;
   padding: 6px 10px;
+}
+
+.detail-filter-controls {
+  justify-content: flex-end;
 }
 
 .segmented-control {
@@ -308,6 +330,44 @@ nav {
   margin-top: 9px;
   color: #536173;
   font-size: 0.8rem;
+}
+
+.tag-strip,
+.tag-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+}
+
+.tag-strip {
+  border: 1px solid #d8e0ea;
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 8px 10px;
+}
+
+.tag-chip-row {
+  margin-top: 6px;
+}
+
+.tag-chip {
+  overflow: hidden;
+  max-width: 160px;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  background: #ffffff;
+  padding: 2px 8px;
+  font-size: 0.76rem;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tag-chip.compact {
+  max-width: 112px;
+  padding: 1px 7px;
+  font-size: 0.72rem;
 }
 
 .collection-actions {
@@ -967,6 +1027,20 @@ nav {
 
   .selected-folder {
     grid-template-columns: 1fr;
+  }
+
+  .collection-controls,
+  .collection-filter-controls,
+  .collection-view-controls,
+  .detail-filter-controls {
+    align-items: stretch;
+    flex-wrap: wrap;
+  }
+
+  .collection-controls select,
+  .detail-filter-controls select {
+    min-width: 0;
+    flex: 1 1 150px;
   }
 
   .batch-toolbar {

@@ -183,6 +183,33 @@ pub struct UpdateTagRequest {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct TagAssignmentDto {
+    pub target_id: String,
+    pub tag: TagDto,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ListCollectionTagAssignmentsRequest {
+    pub collection_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ListImageTagAssignmentsRequest {
+    pub collection_id: Option<String>,
+    pub image_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SetTagAssignmentsRequest {
+    pub target_id: String,
+    pub tag_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SettingDto {
     pub key: String,
     pub value: String,
