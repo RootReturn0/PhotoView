@@ -13,6 +13,7 @@ import {
   ArrowLeft,
   ChevronLeft,
   ChevronRight,
+  Clock3,
   Copy,
   ExternalLink,
   FileImage,
@@ -29,6 +30,7 @@ import {
   Play,
   RotateCw,
   Search,
+  Settings,
   SlidersHorizontal,
   Star,
   Tag as TagIcon,
@@ -74,6 +76,17 @@ type ImportCollectionResult = {
   errorCount: number;
 };
 
+type ImportFolderResult = {
+  rootPath: string;
+  collectionCount: number;
+  scannedCount: number;
+  insertedCount: number;
+  updatedCount: number;
+  errorCount: number;
+  skippedDirCount: number;
+  results: ImportCollectionResult[];
+};
+
 type Collection = {
   id: string;
   path: string;
@@ -98,6 +111,7 @@ type CollectionDraft = {
 
 type CollectionSortKey = "imported" | "name" | "images" | "size";
 type CollectionViewMode = "grid" | "list";
+type NavigationView = "all" | "favorites" | "recent" | "tags" | "settings";
 
 type ImageRecord = {
   id: string;
@@ -208,6 +222,8 @@ function App() {
   const [dragOverCollectionId, setDragOverCollectionId] = useState<string | null>(null);
   const [thumbnails, setThumbnails] = useState<Record<string, Thumbnail>>({});
   const [thumbnailErrors, setThumbnailErrors] = useState<Record<string, string>>({});
+  const [collectionCovers, setCollectionCovers] = useState<Record<string, Thumbnail>>({});
+  const [collectionCoverErrors, setCollectionCoverErrors] = useState<Record<string, string>>({});
   const [imagesLoading, setImagesLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -220,7 +236,7 @@ function App() {
   const [duplicateResult, setDuplicateResult] = useState<DuplicateDetectionResult | null>(null);
   const [isDetectingDuplicates, setIsDetectingDuplicates] = useState(false);
   const [isAdvancedSearchOpen, setIsAdvancedSearchOpen] = useState(false);
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [activeView, setActiveView] = useState<NavigationView>("all");
   const [theme, setTheme] = useState("system");
   const [language, setLanguage] = useState("zh-CN");
   const [shortcutProfile, setShortcutProfile] = useState("default");
@@ -257,6 +273,7 @@ function App() {
   const [isInfoPanelOpen, setIsInfoPanelOpen] = useState(true);
   const importInFlight = useRef(false);
   const thumbnailRequests = useRef(new Set<string>());
+  const collectionCoverRequests = useRef(new Set<string>());
   const viewerAssetRequest = useRef(0);
   const pendingImageFocusId = useRef<string | null>(null);
   const imageListRef = useRef<HTMLDivElement | null>(null);
@@ -298,14 +315,25 @@ function App() {
 
   const visibleCollections = useMemo(() => {
     const normalizedQuery = query.trim().toLocaleLowerCase();
+    const navFiltered = collections.filter((collection) => {
+      if (activeView === "favorites") {
+        return collection.isFavorite;
+      }
+
+      if (activeView === "recent") {
+        return Boolean(collection.lastViewedAt);
+      }
+
+      return true;
+    });
     const textFiltered = normalizedQuery
-      ? collections.filter((collection) =>
+      ? navFiltered.filter((collection) =>
           [collection.name, collection.path, collection.description]
             .join(" ")
             .toLocaleLowerCase()
             .includes(normalizedQuery),
         )
-      : collections;
+      : navFiltered;
     const filtered =
       selectedTagFilterId === "all"
         ? textFiltered
@@ -313,8 +341,16 @@ function App() {
             (collectionTagMap[collection.id] ?? []).some((tag) => tag.id === selectedTagFilterId),
           );
 
+    if (activeView === "recent") {
+      return [...filtered].sort((left, right) => {
+        const leftTime = left.lastViewedAt ? new Date(left.lastViewedAt).getTime() : 0;
+        const rightTime = right.lastViewedAt ? new Date(right.lastViewedAt).getTime() : 0;
+        return rightTime - leftTime;
+      });
+    }
+
     return [...filtered].sort((left, right) => compareCollections(left, right, sortKey));
-  }, [collectionTagMap, collections, query, selectedTagFilterId, sortKey]);
+  }, [activeView, collectionTagMap, collections, query, selectedTagFilterId, sortKey]);
 
   const imageVirtualizer = useVirtualizer({
     count: visibleImages.length,
@@ -366,6 +402,40 @@ function App() {
       void loadThumbnail(image.id);
     }
   });
+
+  useEffect(() => {
+    setThumbnails({});
+    setThumbnailErrors({});
+    setCollectionCovers({});
+    setCollectionCoverErrors({});
+    thumbnailRequests.current.clear();
+    collectionCoverRequests.current.clear();
+    imageVirtualizer.measure();
+  }, [thumbnailSize]);
+
+  useEffect(() => {
+    if (!isTauriRuntime() || visibleCollections.length === 0) {
+      return;
+    }
+
+    for (const collection of visibleCollections) {
+      if (!collection.coverImageId) {
+        continue;
+      }
+
+      const requestKey = `${collection.id}:${collection.coverImageId}:${thumbnailSize}`;
+      if (
+        collectionCovers[collection.id]?.imageId === collection.coverImageId ||
+        collectionCoverErrors[requestKey] ||
+        collectionCoverRequests.current.has(requestKey)
+      ) {
+        continue;
+      }
+
+      collectionCoverRequests.current.add(requestKey);
+      void loadCollectionCover(collection, requestKey);
+    }
+  }, [collectionCoverErrors, collectionCovers, thumbnailSize, visibleCollections]);
 
   useEffect(() => {
     if (!isTauriRuntime()) {
@@ -639,6 +709,26 @@ function App() {
     }
   }
 
+  async function loadCollectionCover(collection: Collection, requestKey: string) {
+    if (!collection.coverImageId) {
+      return;
+    }
+
+    try {
+      const thumbnail = await invoke<Thumbnail>("get_thumbnail", {
+        imageId: collection.coverImageId,
+        targetSize: clamp(Math.round(numberOrNull(thumbnailSize) ?? 192), 96, 512),
+      });
+
+      setCollectionCovers((current) => ({ ...current, [collection.id]: thumbnail }));
+    } catch (value) {
+      setCollectionCoverErrors((current) => ({
+        ...current,
+        [requestKey]: invokeErrorMessage(value),
+      }));
+    }
+  }
+
   async function loadViewerImage(imageId: string, requestId: number) {
     try {
       const asset = await invoke<ViewerImageAsset>("get_viewer_image", {
@@ -684,15 +774,18 @@ function App() {
       setSelectedImportPath(folder);
       setNotice("正在导入文件夹");
 
-      const result = await invoke<ImportCollectionResult>("import_collection", {
+      const result = await invoke<ImportFolderResult>("import_folder", {
         request: { path: folder },
       });
 
       setNotice(
-        `${result.collection.name}：扫描 ${result.scannedCount} 张，新增 ${result.insertedCount} 张，更新 ${result.updatedCount} 张，错误 ${result.errorCount} 个`,
+        `导入 ${result.collectionCount} 个合集：扫描 ${result.scannedCount} 张，新增 ${result.insertedCount} 张，更新 ${result.updatedCount} 张，错误 ${result.errorCount} 个`,
       );
       await refreshAppData();
-      setSelectedCollectionId(result.collection.id);
+      setActiveView("all");
+      setSelectedCollectionId(
+        result.collectionCount === 1 ? result.results[0]?.collection.id ?? null : null,
+      );
     } catch (value) {
       setError(invokeErrorMessage(value));
     } finally {
@@ -912,8 +1005,20 @@ function App() {
 
   function openSearchTag(tag: PhotoTag) {
     clearSearchResults();
+    setActiveView("all");
+    setSelectedCollectionId(null);
     setSelectedTagFilterId(tag.id);
     setNotice(`已筛选标签：${tag.name}`);
+  }
+
+  function showNavigationView(view: NavigationView) {
+    setActiveView(view);
+    setSelectedCollectionId(null);
+    setError(null);
+    setNotice(null);
+    if (view === "all" || view === "favorites" || view === "recent") {
+      setSelectedTagFilterId("all");
+    }
   }
 
   async function runDuplicateDetection() {
@@ -981,6 +1086,7 @@ function App() {
   }
 
   function openCollection(collection: Collection) {
+    setActiveView("all");
     setSelectedCollectionId(collection.id);
     setNotice(null);
     setError(null);
@@ -1690,13 +1796,13 @@ function App() {
     setDragOverCollectionId(collectionId);
   }
 
-  async function deleteSelectedCollectionRecord() {
-    if (!selectedCollection) {
+  async function deleteCollectionRecord(collection: Collection | null) {
+    if (!collection) {
       return;
     }
 
     const confirmed = window.confirm(
-      `删除合集记录“${selectedCollection.name}”？磁盘文件夹不会被删除。`,
+      `删除合集记录“${collection.name}”？磁盘文件夹不会被删除。`,
     );
     if (!confirmed) {
       return;
@@ -1711,14 +1817,17 @@ function App() {
     }
 
     try {
-      await invoke("delete_collection_record", { id: selectedCollection.id });
-      setSelectedCollectionId(null);
-      setImages([]);
-      setThumbnails({});
-      setThumbnailErrors({});
-      thumbnailRequests.current.clear();
+      await invoke("delete_collection_record", { id: collection.id });
+      if (selectedCollectionId === collection.id) {
+        setSelectedCollectionId(null);
+        setImages([]);
+        setThumbnails({});
+        setThumbnailErrors({});
+        thumbnailRequests.current.clear();
+      }
+      setCollectionCovers((current) => omitKey(current, collection.id));
       setCollections((current) =>
-        current.filter((collection) => collection.id !== selectedCollection.id),
+        current.filter((item) => item.id !== collection.id),
       );
       await refreshStatus();
       setNotice("合集记录已删除，磁盘文件夹已保留");
@@ -1806,11 +1915,60 @@ function App() {
           <span className="brand-mark">PV</span>
           <span>PhotoView</span>
         </div>
-        <nav>
-          <button className="nav-item active">全部</button>
-          <button className="nav-item">收藏</button>
-          <button className="nav-item">最近</button>
-          <button className="nav-item">标签</button>
+        <nav className="primary-nav">
+          <button
+            aria-label="全部"
+            className={`nav-item ${activeView === "all" && !selectedCollection ? "active" : ""}`}
+            type="button"
+            onClick={() => showNavigationView("all")}
+          >
+            <Images size={17} aria-hidden="true" />
+            <span>全部</span>
+            <small>{collections.length}</small>
+          </button>
+          <button
+            aria-label="收藏"
+            className={`nav-item ${
+              activeView === "favorites" && !selectedCollection ? "active" : ""
+            }`}
+            type="button"
+            onClick={() => showNavigationView("favorites")}
+          >
+            <Star size={17} aria-hidden="true" />
+            <span>收藏</span>
+            <small>{collections.filter((collection) => collection.isFavorite).length}</small>
+          </button>
+          <button
+            aria-label="最近"
+            className={`nav-item ${activeView === "recent" && !selectedCollection ? "active" : ""}`}
+            type="button"
+            onClick={() => showNavigationView("recent")}
+          >
+            <Clock3 size={17} aria-hidden="true" />
+            <span>最近</span>
+            <small>{collections.filter((collection) => collection.lastViewedAt).length}</small>
+          </button>
+          <button
+            aria-label="标签"
+            className={`nav-item ${activeView === "tags" && !selectedCollection ? "active" : ""}`}
+            type="button"
+            onClick={() => showNavigationView("tags")}
+          >
+            <Tags size={17} aria-hidden="true" />
+            <span>标签</span>
+            <small>{tags.length}</small>
+          </button>
+        </nav>
+        <nav className="utility-nav">
+          <button
+            aria-label="设置"
+            className={`nav-item ${activeView === "settings" ? "active" : ""}`}
+            type="button"
+            onClick={() => showNavigationView("settings")}
+          >
+            <Settings size={17} aria-hidden="true" />
+            <span>设置</span>
+          </button>
         </nav>
       </aside>
 
@@ -1865,15 +2023,6 @@ function App() {
           >
             <RotateCw size={16} aria-hidden="true" />
             <span>{isSyncing ? "同步中" : "同步"}</span>
-          </button>
-          <button
-            className="secondary-action"
-            type="button"
-            aria-pressed={isSettingsOpen}
-            onClick={() => setIsSettingsOpen((current) => !current)}
-          >
-            <Info size={16} aria-hidden="true" />
-            <span>设置</span>
           </button>
           <button
             className="primary-action"
@@ -2036,64 +2185,6 @@ function App() {
             </section>
           ) : null}
 
-          {isSettingsOpen ? (
-            <section className="settings-panel" aria-label="设置">
-              <label>
-                <span>主题</span>
-                <select value={theme} onChange={(event) => setTheme(event.target.value)}>
-                  <option value="system">系统</option>
-                  <option value="light">浅色</option>
-                  <option value="dark">深色</option>
-                </select>
-              </label>
-              <label>
-                <span>语言</span>
-                <select value={language} onChange={(event) => setLanguage(event.target.value)}>
-                  <option value="zh-CN">简体中文</option>
-                  <option value="en-US">English</option>
-                </select>
-              </label>
-              <label>
-                <span>快捷键</span>
-                <select
-                  value={shortcutProfile}
-                  onChange={(event) => setShortcutProfile(event.target.value)}
-                >
-                  <option value="default">默认</option>
-                  <option value="vim">Vim</option>
-                  <option value="minimal">精简</option>
-                </select>
-              </label>
-              <label>
-                <span>缩略图</span>
-                <input
-                  max={512}
-                  min={64}
-                  type="number"
-                  value={thumbnailSize}
-                  onChange={(event) => setThumbnailSize(event.target.value)}
-                />
-              </label>
-              <div className="settings-actions">
-                <button type="button" onClick={() => void savePreferences()}>
-                  保存
-                </button>
-                <button type="button" onClick={() => void runDataTool("backup_database")}>
-                  备份
-                </button>
-                <button type="button" onClick={() => void restoreDatabase()}>
-                  恢复
-                </button>
-                <button type="button" onClick={() => void runDataTool("rebuild_index")}>
-                  重建
-                </button>
-                <button type="button" onClick={() => void runDataTool("export_library_data")}>
-                  导出
-                </button>
-              </div>
-            </section>
-          ) : null}
-
           {searchResults ? (
             <section className="search-results" aria-label="搜索结果">
               <header>
@@ -2231,7 +2322,7 @@ function App() {
                     className="icon-button danger"
                     title="删除合集记录"
                     type="button"
-                    onClick={() => void deleteSelectedCollectionRecord()}
+                    onClick={() => void deleteCollectionRecord(selectedCollection)}
                   >
                     <Trash2 size={16} aria-hidden="true" />
                   </button>
@@ -2428,7 +2519,7 @@ function App() {
                             <span>{formatBytes(image.sizeBytes)}</span>
                             <button
                               aria-label="设置图片标签"
-                              className="icon-button compact"
+                              className="icon-button compact secondary-row-action"
                               title="设置图片标签"
                               type="button"
                               onClick={(event) => {
@@ -2456,7 +2547,7 @@ function App() {
                             </button>
                             <button
                               aria-label="重命名图片"
-                              className="icon-button compact"
+                              className="icon-button compact secondary-row-action"
                               title="重命名图片"
                               type="button"
                               onClick={(event) => {
@@ -2480,7 +2571,7 @@ function App() {
                             </button>
                             <button
                               aria-label="复制图片"
-                              className="icon-button compact"
+                              className="icon-button compact secondary-row-action"
                               title="复制图片"
                               type="button"
                               onClick={(event) => {
@@ -2492,7 +2583,7 @@ function App() {
                             </button>
                             <button
                               aria-label="删除图片"
-                              className="icon-button compact danger"
+                              className="icon-button compact danger secondary-row-action"
                               title="删除图片"
                               type="button"
                               onClick={(event) => {
@@ -2519,10 +2610,136 @@ function App() {
                 )}
               </section>
             </>
+          ) : activeView === "settings" ? (
+            <>
+              <div className="section-heading">
+                <div>
+                  <h1>设置</h1>
+                  <p className="section-subtitle">偏好与本地数据管理</p>
+                </div>
+              </div>
+
+              <section className="settings-page" aria-label="设置">
+                <article className="settings-card">
+                  <header>
+                    <Settings size={18} aria-hidden="true" />
+                    <h2>偏好</h2>
+                  </header>
+                  <div className="settings-grid">
+                    <label>
+                      <span>主题</span>
+                      <select value={theme} onChange={(event) => setTheme(event.target.value)}>
+                        <option value="system">系统</option>
+                        <option value="light">浅色</option>
+                        <option value="dark">深色</option>
+                      </select>
+                    </label>
+                    <label>
+                      <span>语言</span>
+                      <select value={language} onChange={(event) => setLanguage(event.target.value)}>
+                        <option value="zh-CN">简体中文</option>
+                        <option value="en-US">English</option>
+                      </select>
+                    </label>
+                    <label>
+                      <span>快捷键</span>
+                      <select
+                        value={shortcutProfile}
+                        onChange={(event) => setShortcutProfile(event.target.value)}
+                      >
+                        <option value="default">默认</option>
+                        <option value="vim">Vim</option>
+                        <option value="minimal">精简</option>
+                      </select>
+                    </label>
+                    <label>
+                      <span>缩略图</span>
+                      <input
+                        aria-label="缩略图"
+                        max={512}
+                        min={64}
+                        type="number"
+                        value={thumbnailSize}
+                        onChange={(event) => setThumbnailSize(event.target.value)}
+                      />
+                    </label>
+                  </div>
+                  <footer>
+                    <button className="primary-action" type="button" onClick={() => void savePreferences()}>
+                      保存偏好
+                    </button>
+                  </footer>
+                </article>
+
+                <article className="settings-card">
+                  <header>
+                    <Info size={18} aria-hidden="true" />
+                    <h2>数据管理</h2>
+                  </header>
+                  <div className="settings-actions">
+                    <button type="button" onClick={() => void runDataTool("backup_database")}>
+                      备份数据库
+                    </button>
+                    <button type="button" onClick={() => void restoreDatabase()}>
+                      恢复数据库
+                    </button>
+                    <button type="button" onClick={() => void runDataTool("rebuild_index")}>
+                      重建索引
+                    </button>
+                    <button type="button" onClick={() => void runDataTool("export_library_data")}>
+                      导出数据
+                    </button>
+                  </div>
+                </article>
+              </section>
+            </>
+          ) : activeView === "tags" ? (
+            <>
+              <div className="section-heading">
+                <div>
+                  <h1>标签</h1>
+                  <p className="section-subtitle">{tags.length} 个标签</p>
+                </div>
+                <div className="detail-actions">
+                  <button className="secondary-action" type="button" onClick={() => void createTag()}>
+                    <Tags size={15} aria-hidden="true" />
+                    <span>新建</span>
+                  </button>
+                  <button className="secondary-action" type="button" onClick={() => void editTag()}>
+                    <Pencil size={15} aria-hidden="true" />
+                    <span>编辑</span>
+                  </button>
+                  <button className="secondary-action danger" type="button" onClick={() => void deleteTag()}>
+                    <Trash2 size={15} aria-hidden="true" />
+                    <span>删除</span>
+                  </button>
+                </div>
+              </div>
+
+              <section className="tag-gallery" aria-label="标签">
+                {tags.length > 0 ? (
+                  tags.map((tag) => (
+                    <button key={tag.id} type="button" onClick={() => openSearchTag(tag)}>
+                      <span className="tag-dot" style={{ background: tag.color }} />
+                      <strong>{tag.name}</strong>
+                      <small>{tag.color}</small>
+                    </button>
+                  ))
+                ) : (
+                  <div className="empty-state">
+                    <h2>暂无标签</h2>
+                    <button className="primary-action" type="button" onClick={() => void createTag()}>
+                      <Tags size={16} aria-hidden="true" />
+                      <span>新建标签</span>
+                    </button>
+                  </div>
+                )}
+              </section>
+            </>
           ) : (
             <>
               <div className="section-heading">
-                <h1>全部合集</h1>
+                <h1>{collectionViewTitle(activeView, selectedTagFilterId, tags)}</h1>
                 <span>
                   {status
                     ? `${visibleCollections.length}/${status.collection_count} 个合集`
@@ -2627,7 +2844,14 @@ function App() {
                       }}
                     >
                       <div className="collection-cover">
-                        <Images size={24} aria-hidden="true" />
+                        {collectionCovers[collection.id] ? (
+                          <img
+                            alt=""
+                            src={convertFileSrc(collectionCovers[collection.id].cachePath)}
+                          />
+                        ) : (
+                          <Images size={24} aria-hidden="true" />
+                        )}
                       </div>
                       <div className="collection-main">
                         <div className="collection-title-row">
@@ -2670,7 +2894,7 @@ function App() {
                         </button>
                         <button
                           aria-label="设置合集标签"
-                          className="icon-button"
+                          className="icon-button secondary-card-action"
                           title="设置合集标签"
                           type="button"
                           onClick={(event) => {
@@ -2682,7 +2906,7 @@ function App() {
                         </button>
                         <button
                           aria-label="复制路径"
-                          className="icon-button"
+                          className="icon-button secondary-card-action"
                           title="复制路径"
                           type="button"
                           onClick={(event) => {
@@ -2694,7 +2918,7 @@ function App() {
                         </button>
                         <button
                           aria-label="打开所在位置"
-                          className="icon-button"
+                          className="icon-button secondary-card-action"
                           title="打开所在位置"
                           type="button"
                           onClick={(event) => {
@@ -2703,6 +2927,18 @@ function App() {
                           }}
                         >
                           <ExternalLink size={16} aria-hidden="true" />
+                        </button>
+                        <button
+                          aria-label="删除合集记录"
+                          className="icon-button danger secondary-card-action"
+                          title="删除合集记录"
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            void deleteCollectionRecord(collection);
+                          }}
+                        >
+                          <Trash2 size={16} aria-hidden="true" />
                         </button>
                       </div>
                     </article>
@@ -2715,6 +2951,17 @@ function App() {
                         ? "调整搜索关键词后再试。"
                         : "选择本地图片文件夹后，PhotoView 会在本机建立索引。"}
                     </p>
+                    {collections.length === 0 ? (
+                      <button
+                        className="primary-action"
+                        type="button"
+                        disabled={isImporting}
+                        onClick={handleChooseImportFolder}
+                      >
+                        <FolderPlus size={16} aria-hidden="true" />
+                        <span>{isImporting ? "导入中" : "导入文件夹"}</span>
+                      </button>
+                    ) : null}
                   </div>
                 )}
               </section>
@@ -3188,6 +3435,27 @@ function compareCollections(
   }
 
   return new Date(right.importedAt).getTime() - new Date(left.importedAt).getTime();
+}
+
+function collectionViewTitle(
+  activeView: NavigationView,
+  selectedTagFilterId: string,
+  tags: PhotoTag[],
+): string {
+  if (selectedTagFilterId !== "all") {
+    const tag = tags.find((item) => item.id === selectedTagFilterId);
+    return tag ? `标签：${tag.name}` : "标签筛选";
+  }
+
+  if (activeView === "favorites") {
+    return "收藏合集";
+  }
+
+  if (activeView === "recent") {
+    return "最近浏览";
+  }
+
+  return "全部合集";
 }
 
 function formatBytes(value: number): string {

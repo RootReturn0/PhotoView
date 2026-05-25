@@ -2,12 +2,11 @@ use crate::{
     errors::{AppError, AppResult},
     models::{
         CollectionDto, CopyImageFileRequest, CreateCollectionRequest, CreateImageRequest,
-        CreateTagRequest, DeleteImageFileRequest, ImageDto, ImportCollectionRequest,
-        ImportCollectionResult, ImportErrorDto, ListCollectionTagAssignmentsRequest,
-        ListImageTagAssignmentsRequest, ListImagesRequest, MoveImageFileRequest,
-        RenameImageFileRequest, SearchLibraryRequest, SearchResultsDto, SetTagAssignmentsRequest,
-        SettingDto, TagAssignmentDto, TagDto, TaskDto, UpdateCollectionRequest, UpdateImageRequest,
-        UpdateSettingRequest, UpdateTagRequest,
+        CreateTagRequest, DeleteImageFileRequest, ImageDto, ImportCollectionResult, ImportErrorDto,
+        ListCollectionTagAssignmentsRequest, ListImageTagAssignmentsRequest, ListImagesRequest,
+        MoveImageFileRequest, RenameImageFileRequest, SearchLibraryRequest, SearchResultsDto,
+        SetTagAssignmentsRequest, SettingDto, TagAssignmentDto, TagDto, TaskDto,
+        UpdateCollectionRequest, UpdateImageRequest, UpdateSettingRequest, UpdateTagRequest,
     },
     scanner::{self, ScanCandidate},
 };
@@ -68,21 +67,31 @@ pub fn get_collection_by_path(conn: &Connection, path: &str) -> AppResult<Option
     .map_err(Into::into)
 }
 
+#[cfg(test)]
 pub fn import_collection(
     conn: &mut Connection,
-    request: ImportCollectionRequest,
+    request: crate::models::ImportCollectionRequest,
 ) -> AppResult<ImportCollectionResult> {
     let requested_path = require_text(request.path, "合集路径")?;
     let root = Path::new(&requested_path);
-    let report = scanner::scan_directory(root)
-        .map_err(|value| AppError::new("scan_error", value.to_string()))?;
     let root = std::fs::canonicalize(root)?;
-    let collection_path = path_to_string(&root);
+    let report = scanner::scan_directory(&root)
+        .map_err(|value| AppError::new("scan_error", value.to_string()))?;
     let collection_name = request
         .name
         .map(|value| require_text(value, "合集名称"))
         .transpose()?;
 
+    import_scanned_collection(conn, &root, collection_name, report)
+}
+
+pub fn import_scanned_collection(
+    conn: &mut Connection,
+    root: &Path,
+    collection_name: Option<String>,
+    report: scanner::ScanReport,
+) -> AppResult<ImportCollectionResult> {
+    let collection_path = path_to_string(root);
     let tx = conn.transaction()?;
     let collection = ensure_import_collection(&tx, &collection_path, collection_name)?;
     let mut inserted_count = 0;
@@ -99,6 +108,7 @@ pub fn import_collection(
     let collection = get_collection_required(&tx, &collection.id)?;
     tx.commit()?;
 
+    let scanned_count = report.candidates.len() as i64;
     let errors = report
         .errors
         .into_iter()
@@ -111,7 +121,7 @@ pub fn import_collection(
 
     Ok(ImportCollectionResult {
         collection,
-        scanned_count: report.candidates.len() as i64,
+        scanned_count,
         inserted_count,
         updated_count,
         error_count: errors.len() as i64,
@@ -1280,6 +1290,24 @@ fn refresh_collection_stats(conn: &Connection, collection_id: &str) -> AppResult
               FROM images
               WHERE collection_id = ?1 AND is_missing = 0
             ),
+            cover_image_id = CASE
+              WHEN cover_image_id IS NOT NULL
+                   AND EXISTS(
+                     SELECT 1
+                     FROM images
+                     WHERE id = cover_image_id
+                       AND collection_id = ?1
+                       AND is_missing = 0
+                   )
+                THEN cover_image_id
+              ELSE (
+                SELECT id
+                FROM images
+                WHERE collection_id = ?1 AND is_missing = 0
+                ORDER BY file_name COLLATE NOCASE ASC
+                LIMIT 1
+              )
+            END,
             updated_at = ?2
         WHERE id = ?1
         ",
@@ -1967,6 +1995,7 @@ fn now() -> String {
 mod tests {
     use super::*;
     use crate::db;
+    use crate::models::ImportCollectionRequest;
     use image::{Rgb, RgbImage};
     use std::{fs, path::PathBuf};
 
@@ -2452,6 +2481,7 @@ mod tests {
         assert_eq!(first.updated_count, 0);
         assert_eq!(first.error_count, 1);
         assert_eq!(first.collection.image_count, 1);
+        assert!(first.collection.cover_image_id.is_some());
 
         let second = import_collection(
             &mut conn,

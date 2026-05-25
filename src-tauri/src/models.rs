@@ -48,6 +48,19 @@ pub struct ImportCollectionResult {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct ImportFolderResult {
+    pub root_path: String,
+    pub collection_count: i64,
+    pub scanned_count: i64,
+    pub inserted_count: i64,
+    pub updated_count: i64,
+    pub error_count: i64,
+    pub skipped_dir_count: i64,
+    pub results: Vec<ImportCollectionResult>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ImportErrorDto {
     pub path: String,
     pub kind: String,
