@@ -371,7 +371,7 @@ pub fn list_image_paths_for_collection(
         "
         SELECT path
         FROM images
-        WHERE collection_id = ?1 AND is_missing = 0
+        WHERE collection_id = ?1
         ORDER BY path ASC
         ",
     )?;

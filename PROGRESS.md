@@ -3,7 +3,7 @@
 ## Current
 
 - 阶段：阶段 6，性能、功能问题修复。
-- 正在做：阶段 6 iteration 复审后的导入、安全授权和可访问性收口，准备提交、push、merge。
+- 正在做：阶段 6 最新 TODO 已实现并通过 iteration 复审，准备提交、push、merge。
 - 下一步：提交并 push `development`，合并到 `master`；发布 tag 需先确认远端既有 `v0.1.1` 的处理方式。
 
 ## Done
@@ -88,6 +88,10 @@
 - 已收紧 Tauri asset scope：选择文件夹只授权 FS scope；启动时嵌套合集按图片文件授权；删除父/根合集时不破坏子合集访问；移除未使用的 `import_collection`、`create_collection`、`create_image` command 注册。
 - 已完成最终复审：UI/UX subagent 和技术 subagent 均无高/中优先级意见。
 - 已完成本轮验证：`pnpm test` 8 项通过，`pnpm build` 通过，`cargo fmt --check` 通过，`cargo test` 26 项通过、1 项忽略，`cargo test fixture_acceptance_core_flow -- --ignored` 通过，`pnpm tauri build --debug --bundles app` 通过；Playwright 桌面/移动本地冒烟无控制台错误、无横向溢出，测试页面和 dev server 已关闭。
+- 已完成最新阶段 6 TODO：`全部`页移除标签管理入口；标签页改为内联添加/编辑和卡片内编辑/删除；合集/图片标签设置改为应用内下拉多选；图片详情新增列表/网格视图，网格仅展示缩略图和名字；查看器长图限制在容器内。
+- 已优化多层大目录导入：先发现目录并发送准备进度，再逐目录直接扫描，异常子目录跳过不中断；导入阶段 `totalCount` 表示待导入合集数；删除合集时撤销全部历史图片路径的 asset 文件授权。
+- 已完成最新 iteration 复审：UI/UX subagent 和技术 subagent 最终均无高/中优先级意见。
+- 已完成最新验证：`pnpm test` 9 项通过，`pnpm build` 通过，`cargo fmt --check` 通过，`cargo test` 26 项通过、1 项忽略，`cargo test fixture_acceptance_core_flow -- --ignored` 通过，`pnpm tauri build --debug --bundles app` 通过；Playwright 移动端本地冒烟无控制台错误、无横向溢出，测试页面和 dev server 已关闭。
 
 ## Blocked
 

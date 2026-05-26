@@ -12,7 +12,7 @@ use crate::{
         ThumbnailCacheStatsDto, ThumbnailDto, ThumbnailTaskRequest, UpdateCollectionRequest,
         UpdateImageRequest, UpdateSettingRequest, UpdateTagRequest, ViewerImageDto,
     },
-    scanner::{self, ScanErrorKind, ScanReport},
+    scanner::{self, ScanReport},
     thumbs::{
         clear_thumbnail_cache as clear_thumbnail_cache_files, collect_thumbnail_cache_stats,
         get_or_create_thumbnail, read_source_metadata, ThumbnailCacheStatus, ThumbnailRequest,
@@ -55,8 +55,6 @@ pub fn import_folder(
     app_state.reset_import_cancel();
     let _import_session = ImportCancelSession { state: app_state };
 
-    let requested_name = request.name;
-    let child_dirs = collect_import_child_dirs(&root)?;
     let mut skipped_dir_count = 0;
     let mut results = Vec::new();
     let mut processed_count = 0_i64;
@@ -68,38 +66,92 @@ pub fn import_folder(
             &root,
             "preparing",
             processed_count,
+            0,
             skipped_dir_count,
             &results,
         ),
     );
 
-    for target_path in &child_dirs {
+    let discovery = collect_import_directories(&root, app_state, |discovered, skipped| {
+        emit_import_progress(
+            &app,
+            import_progress(
+                &root,
+                &root,
+                "preparing",
+                0,
+                discovered as i64,
+                skipped,
+                &results,
+            ),
+        );
+    })?;
+    skipped_dir_count = discovery.skipped_dir_count;
+    let target_dirs = discovery.directories;
+    let total_directory_count = target_dirs.len() as i64;
+
+    emit_import_progress(
+        &app,
+        import_progress(
+            &root,
+            &root,
+            "preparing",
+            processed_count,
+            total_directory_count,
+            skipped_dir_count,
+            &results,
+        ),
+    );
+
+    let mut pending_imports = Vec::new();
+    for (index, target_path) in target_dirs.iter().enumerate() {
         ensure_import_not_cancelled(app_state)?;
+        let scanned_dir_count = index as i64;
         emit_import_progress(
             &app,
             import_progress(
                 &root,
                 target_path,
                 "scanning",
-                processed_count,
+                scanned_dir_count,
+                total_directory_count,
                 skipped_dir_count,
                 &results,
             ),
         );
 
-        let report = scan_directory_for_import_with_cancel(target_path, app_state)?;
+        let report = match scan_direct_images_for_import(target_path, app_state) {
+            Ok(report) => report,
+            Err(error) if error.code != "operation_cancelled" => {
+                skipped_dir_count += 1;
+                emit_import_progress(
+                    &app,
+                    import_progress(
+                        &root,
+                        target_path,
+                        "skipped",
+                        scanned_dir_count + 1,
+                        total_directory_count,
+                        skipped_dir_count,
+                        &results,
+                    ),
+                );
+                continue;
+            }
+            Err(error) => return Err(error),
+        };
         ensure_import_not_cancelled(app_state)?;
 
         if report.candidates.is_empty() {
             skipped_dir_count += 1;
-            processed_count += 1;
             emit_import_progress(
                 &app,
                 import_progress(
                     &root,
                     target_path,
                     "skipped",
-                    processed_count,
+                    scanned_dir_count + 1,
+                    total_directory_count,
                     skipped_dir_count,
                     &results,
                 ),
@@ -107,69 +159,52 @@ pub fn import_folder(
             continue;
         }
 
-        let result = state.with_db_mut(|db| {
-            repositories::import_scanned_collection_with_cancel(
-                db,
-                target_path,
-                None,
-                report,
-                || app_state.import_cancel_requested(),
-            )
-        })?;
-        let collection_path = Path::new(&result.collection.path);
-        if collection_path.is_dir() {
-            app.asset_protocol_scope()
-                .allow_directory(collection_path, true)?;
-        }
-        results.push(result);
-        processed_count += 1;
-        emit_import_progress(
-            &app,
-            import_progress(
-                &root,
-                target_path,
-                "imported",
-                processed_count,
-                skipped_dir_count,
-                &results,
-            ),
-        );
+        let image_paths = report
+            .candidates
+            .iter()
+            .map(|candidate| candidate.path.clone())
+            .collect::<Vec<_>>();
+        pending_imports.push(PendingImport {
+            path: target_path.clone(),
+            report,
+            image_paths,
+        });
     }
 
-    ensure_import_not_cancelled(app_state)?;
-    let root_report = scan_direct_images_for_import(&root, app_state)?;
-    let root_image_paths = root_report
-        .candidates
+    let requested_name = request.name;
+    let pending_paths = pending_imports
         .iter()
-        .map(|candidate| candidate.path.clone())
+        .map(|pending| pending.path.clone())
         .collect::<Vec<_>>();
-    if !root_report.candidates.is_empty() {
-        emit_import_progress(
-            &app,
-            import_progress(
-                &root,
-                &root,
-                "scanning",
-                processed_count,
-                skipped_dir_count,
-                &results,
-            ),
-        );
+    let total_count = pending_imports.len() as i64;
+    processed_count = 0;
+
+    for pending in pending_imports {
+        ensure_import_not_cancelled(app_state)?;
+        let collection_name = if pending.path == root {
+            requested_name.clone()
+        } else {
+            None
+        };
+        let has_nested_collection = pending_paths
+            .iter()
+            .any(|other| other != &pending.path && other.starts_with(&pending.path));
+
         let result = state.with_db_mut(|db| {
             repositories::import_scanned_collection_with_cancel(
                 db,
-                &root,
-                requested_name,
-                root_report,
+                &pending.path,
+                collection_name,
+                pending.report,
                 || app_state.import_cancel_requested(),
             )
         })?;
         let collection_path = Path::new(&result.collection.path);
-        if child_dirs.is_empty() && collection_path.is_dir() {
+        if has_nested_collection {
+            allow_asset_files(&app, &pending.image_paths)?;
+        } else if collection_path.is_dir() {
             app.asset_protocol_scope()
                 .allow_directory(collection_path, true)?;
-        } else {
-            allow_asset_files(&app, &root_image_paths)?;
         }
         results.push(result);
         processed_count += 1;
@@ -177,9 +212,10 @@ pub fn import_folder(
             &app,
             import_progress(
                 &root,
-                &root,
+                &pending.path,
                 "imported",
                 processed_count,
+                total_count,
                 skipped_dir_count,
                 &results,
             ),
@@ -213,6 +249,7 @@ pub fn import_folder(
                 .unwrap_or_else(|| result.root_path.clone()),
             phase: "completed".to_string(),
             processed_count,
+            total_count,
             collection_count: result.collection_count,
             scanned_count: result.scanned_count,
             inserted_count: result.inserted_count,
@@ -263,12 +300,16 @@ pub fn delete_collection_record(
     state: State<'_, AppState>,
     id: String,
 ) -> AppResult<()> {
-    let collection_path = state
-        .with_db(|db| repositories::get_collection(db, &id))?
-        .map(|collection| collection.path);
+    let (collection_path, image_paths) = state.with_db(|db| {
+        let collection_path =
+            repositories::get_collection(db, &id)?.map(|collection| collection.path);
+        let image_paths = repositories::list_image_paths_for_collection(db, &id)?;
+        Ok::<_, crate::errors::AppError>((collection_path, image_paths))
+    })?;
     state.with_db(|db| repositories::delete_collection_record(db, &id))?;
 
     if let Some(collection_path) = collection_path {
+        revoke_asset_files(&app, &image_paths)?;
         let remaining_collections = state.with_db(repositories::list_collections)?;
         revoke_collection_asset_scope(&app, &collection_path, &remaining_collections)?;
     }
@@ -688,12 +729,24 @@ struct ImportFolderProgress {
     current_name: String,
     phase: String,
     processed_count: i64,
+    total_count: i64,
     collection_count: i64,
     scanned_count: i64,
     inserted_count: i64,
     updated_count: i64,
     error_count: i64,
     skipped_dir_count: i64,
+}
+
+struct ImportDirectoryDiscovery {
+    directories: Vec<PathBuf>,
+    skipped_dir_count: i64,
+}
+
+struct PendingImport {
+    path: PathBuf,
+    report: ScanReport,
+    image_paths: Vec<PathBuf>,
 }
 
 struct ImportCancelSession<'a> {
@@ -718,19 +771,93 @@ fn validate_import_root(root: &Path) -> AppResult<()> {
     Ok(())
 }
 
-fn collect_import_child_dirs(root: &Path) -> AppResult<Vec<PathBuf>> {
+fn collect_import_directories<F>(
+    root: &Path,
+    state: &AppState,
+    mut on_progress: F,
+) -> AppResult<ImportDirectoryDiscovery>
+where
+    F: FnMut(usize, i64),
+{
+    let canonical_root = fs::canonicalize(root)?;
+    let mut directories = vec![canonical_root.clone()];
+    let mut skipped_dir_count = 0;
+    on_progress(directories.len(), skipped_dir_count);
+    collect_import_directories_into(
+        &canonical_root,
+        state,
+        &mut directories,
+        &mut skipped_dir_count,
+        &mut on_progress,
+    )?;
+    directories.sort();
+    on_progress(directories.len(), skipped_dir_count);
+    Ok(ImportDirectoryDiscovery {
+        directories,
+        skipped_dir_count,
+    })
+}
+
+fn collect_import_directories_into<F>(
+    directory: &Path,
+    state: &AppState,
+    directories: &mut Vec<PathBuf>,
+    skipped_dir_count: &mut i64,
+    on_progress: &mut F,
+) -> AppResult<()>
+where
+    F: FnMut(usize, i64),
+{
+    ensure_import_not_cancelled(state)?;
     let mut child_dirs = Vec::new();
-    for entry in fs::read_dir(root)? {
-        let entry = entry?;
-        let file_type = entry.file_type()?;
+    let entries = match fs::read_dir(directory) {
+        Ok(entries) => entries,
+        Err(_) => {
+            *skipped_dir_count += 1;
+            on_progress(directories.len(), *skipped_dir_count);
+            return Ok(());
+        }
+    };
+    for entry in entries {
+        ensure_import_not_cancelled(state)?;
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(_) => {
+                *skipped_dir_count += 1;
+                continue;
+            }
+        };
+        let file_type = match entry.file_type() {
+            Ok(file_type) => file_type,
+            Err(_) => {
+                *skipped_dir_count += 1;
+                continue;
+            }
+        };
         if file_type.is_symlink() || !file_type.is_dir() {
             continue;
         }
 
-        child_dirs.push(fs::canonicalize(entry.path())?);
+        match fs::canonicalize(entry.path()) {
+            Ok(path) => child_dirs.push(path),
+            Err(_) => *skipped_dir_count += 1,
+        }
     }
     child_dirs.sort();
-    Ok(child_dirs)
+
+    for child_dir in child_dirs {
+        directories.push(child_dir.clone());
+        on_progress(directories.len(), *skipped_dir_count);
+        collect_import_directories_into(
+            &child_dir,
+            state,
+            directories,
+            skipped_dir_count,
+            on_progress,
+        )?;
+    }
+
+    Ok(())
 }
 
 fn scan_direct_images_for_import(root: &Path, state: &AppState) -> AppResult<ScanReport> {
@@ -742,8 +869,14 @@ fn scan_direct_images_for_import(root: &Path, state: &AppState) -> AppResult<Sca
 
     for entry in fs::read_dir(root)? {
         ensure_import_not_cancelled(state)?;
-        let entry = entry?;
-        let file_type = entry.file_type()?;
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(_) => continue,
+        };
+        let file_type = match entry.file_type() {
+            Ok(file_type) => file_type,
+            Err(_) => continue,
+        };
         if file_type.is_symlink() || !file_type.is_file() {
             continue;
         }
@@ -765,22 +898,6 @@ fn scan_direct_images_for_import(root: &Path, state: &AppState) -> AppResult<Sca
     Ok(report)
 }
 
-fn scan_directory_for_import_with_cancel(root: &Path, state: &AppState) -> AppResult<ScanReport> {
-    map_scan_result(scanner::scan_directory_with_cancel(root, || {
-        state.import_cancel_requested()
-    }))
-}
-
-fn map_scan_result(result: Result<ScanReport, scanner::ScanError>) -> AppResult<ScanReport> {
-    match result {
-        Ok(report) => Ok(report),
-        Err(value) if value.kind == ScanErrorKind::Cancelled => {
-            Err(AppError::new("operation_cancelled", "导入已取消"))
-        }
-        Err(value) => Err(AppError::new("scan_error", value.to_string())),
-    }
-}
-
 fn ensure_import_not_cancelled(state: &AppState) -> AppResult<()> {
     if state.import_cancel_requested() {
         return Err(AppError::new("operation_cancelled", "导入已取消"));
@@ -794,6 +911,7 @@ fn import_progress(
     current: &Path,
     phase: &str,
     processed_count: i64,
+    total_count: i64,
     skipped_dir_count: i64,
     results: &[ImportCollectionResult],
 ) -> ImportFolderProgress {
@@ -808,6 +926,7 @@ fn import_progress(
             .unwrap_or_else(|| current.display().to_string()),
         phase: phase.to_string(),
         processed_count,
+        total_count,
         collection_count,
         scanned_count,
         inserted_count,
@@ -836,6 +955,15 @@ fn allow_asset_files(app: &AppHandle, image_paths: &[PathBuf]) -> AppResult<()> 
         if image_path.is_file() {
             app.asset_protocol_scope().allow_file(image_path)?;
         }
+    }
+
+    Ok(())
+}
+
+fn revoke_asset_files(app: &AppHandle, image_paths: &[String]) -> AppResult<()> {
+    for image_path in image_paths {
+        app.asset_protocol_scope()
+            .forbid_file(Path::new(image_path))?;
     }
 
     Ok(())
@@ -885,22 +1013,28 @@ mod import_tests {
         let root = temp_dir("root-images");
         let app_data = temp_dir("app-data");
         let child = root.join("child");
-        fs::create_dir_all(&child).expect("child fixture directory should be created");
+        let grandchild = child.join("grandchild");
+        fs::create_dir_all(&grandchild).expect("nested fixture directories should be created");
         let root_image = root.join("root.png");
         let child_image = child.join("child.png");
+        let grandchild_image = grandchild.join("grandchild.png");
         write_png(&root_image);
         write_png(&child_image);
+        write_png(&grandchild_image);
 
         let state = AppState::initialize_for_test(app_data.clone())
             .expect("test app state should initialize");
-        let child_dirs = collect_import_child_dirs(&root).expect("child dirs should scan");
+        let discovery =
+            collect_import_directories(&root, &state, |_, _| {}).expect("import dirs should scan");
+        let import_dirs = discovery.directories;
         let direct_report =
             scan_direct_images_for_import(&root, &state).expect("root files should scan");
 
-        assert_eq!(
-            child_dirs,
-            vec![fs::canonicalize(&child).expect("child should canonicalize")]
-        );
+        assert_eq!(import_dirs.len(), 3);
+        assert!(import_dirs.contains(&fs::canonicalize(&root).expect("root should canonicalize")));
+        assert!(import_dirs.contains(&fs::canonicalize(&child).expect("child should canonicalize")));
+        assert!(import_dirs
+            .contains(&fs::canonicalize(&grandchild).expect("grandchild should canonicalize")));
         assert_eq!(direct_report.candidates.len(), 1);
         assert_eq!(direct_report.candidates[0].path, root_image);
 

@@ -93,6 +93,7 @@ type ImportFolderProgress = {
   currentName: string;
   phase: "preparing" | "scanning" | "skipped" | "imported" | "completed";
   processedCount: number;
+  totalCount: number;
   collectionCount: number;
   scannedCount: number;
   insertedCount: number;
@@ -125,6 +126,7 @@ type CollectionDraft = {
 
 type CollectionSortKey = "imported" | "name" | "images" | "size";
 type CollectionViewMode = "grid" | "list";
+type ImageViewMode = "list" | "grid";
 type NavigationView = "all" | "favorites" | "recent" | "tags" | "settings";
 
 type ImageRecord = {
@@ -218,6 +220,11 @@ type ImageContextMenu = {
   y: number;
 };
 
+type TagAssignmentTarget =
+  | { kind: "collection"; collection: Collection }
+  | { kind: "image"; image: ImageRecord }
+  | { kind: "batch"; images: ImageRecord[] };
+
 const SEARCH_FORMATS = ["jpg", "png", "gif", "webp", "avif", "svg", "bmp", "tiff", "ico"];
 
 function App() {
@@ -243,6 +250,7 @@ function App() {
   const [notice, setNotice] = useState<string | null>(null);
   const [selectedImportPath, setSelectedImportPath] = useState<string | null>(null);
   const [isImporting, setIsImporting] = useState(false);
+  const [importProgress, setImportProgress] = useState<ImportFolderProgress | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
   const [query, setQuery] = useState("");
   const [searchResults, setSearchResults] = useState<SearchResults | null>(null);
@@ -270,6 +278,8 @@ function App() {
   const [searchFavorite, setSearchFavorite] = useState("any");
   const [sortKey, setSortKey] = useState<CollectionSortKey>("imported");
   const [viewMode, setViewMode] = useState<CollectionViewMode>("grid");
+  const [imageViewMode, setImageViewMode] = useState<ImageViewMode>("list");
+  const [imageGridColumnCount, setImageGridColumnCount] = useState(4);
   const [isCollectionEditorOpen, setIsCollectionEditorOpen] = useState(false);
   const [collectionDraft, setCollectionDraft] = useState<CollectionDraft>({
     name: "",
@@ -277,6 +287,14 @@ function App() {
     rating: 0,
   });
   const [isCollectionSaving, setIsCollectionSaving] = useState(false);
+  const [tagDraftName, setTagDraftName] = useState("");
+  const [tagDraftColor, setTagDraftColor] = useState("#4f7cff");
+  const [editingTagId, setEditingTagId] = useState<string | null>(null);
+  const [isTagSaving, setIsTagSaving] = useState(false);
+  const [tagAssignmentTarget, setTagAssignmentTarget] = useState<TagAssignmentTarget | null>(null);
+  const [tagAssignmentIds, setTagAssignmentIds] = useState<string[]>([]);
+  const [isTagAssignmentMenuOpen, setIsTagAssignmentMenuOpen] = useState(false);
+  const [isTagAssignmentSaving, setIsTagAssignmentSaving] = useState(false);
   const [viewerIndex, setViewerIndex] = useState<number | null>(null);
   const [viewerAsset, setViewerAsset] = useState<ViewerImageAsset | null>(null);
   const [viewerFitMode, setViewerFitMode] = useState<ViewerFitMode>("fit");
@@ -311,6 +329,11 @@ function App() {
     );
   }, [imageTagMap, images, selectedTagFilterId]);
   const activeImage = viewerIndex === null ? null : visibleImages[viewerIndex] ?? null;
+  const gridTileWidth = Math.max(144, Math.round(numberOrNull(thumbnailSize) ?? 192) + 36);
+  const imageVirtualCount =
+    imageViewMode === "grid"
+      ? Math.ceil(visibleImages.length / imageGridColumnCount)
+      : visibleImages.length;
   const selectedImages = useMemo(
     () => images.filter((image) => selectedImageIds.has(image.id)),
     [images, selectedImageIds],
@@ -326,6 +349,13 @@ function App() {
     activeImage && (!isTauriRuntime() || viewerAsset)
       ? convertImagePath(viewerAsset?.assetPath ?? activeImage.path)
       : null;
+  const tagAssignmentTitle = tagAssignmentTarget
+    ? tagAssignmentTarget.kind === "collection"
+      ? `合集标签：${tagAssignmentTarget.collection.name}`
+      : tagAssignmentTarget.kind === "image"
+        ? `图片标签：${tagAssignmentTarget.image.fileName}`
+        : `批量标签：${tagAssignmentTarget.images.length} 张图片`
+    : "设置标签";
 
   const visibleCollections = useMemo(() => {
     const normalizedQuery = query.trim().toLocaleLowerCase();
@@ -367,9 +397,12 @@ function App() {
   }, [activeView, collectionTagMap, collections, query, selectedTagFilterId, sortKey]);
 
   const imageVirtualizer = useVirtualizer({
-    count: visibleImages.length,
+    count: imageVirtualCount,
     getScrollElement: () => imageListRef.current,
-    estimateSize: () => Math.max(124, Math.round(numberOrNull(thumbnailSize) ?? 192) + 72),
+    estimateSize: () =>
+      imageViewMode === "grid"
+        ? Math.max(172, Math.round(numberOrNull(thumbnailSize) ?? 192) + 58)
+        : Math.max(124, Math.round(numberOrNull(thumbnailSize) ?? 192) + 72),
     overscan: 8,
   });
 
@@ -401,9 +434,16 @@ function App() {
       return;
     }
 
-    const visibleItems = imageVirtualizer.getVirtualItems();
-    for (const item of visibleItems) {
-      const image = visibleImages[item.index];
+    const virtualItems = imageVirtualizer.getVirtualItems();
+    const imagesToLoad =
+      imageViewMode === "grid"
+        ? virtualItems.flatMap((item) => {
+            const rowStart = item.index * imageGridColumnCount;
+            return visibleImages.slice(rowStart, rowStart + imageGridColumnCount);
+          })
+        : virtualItems.map((item) => visibleImages[item.index]).filter(Boolean);
+
+    for (const image of imagesToLoad) {
       if (!image || thumbnails[image.id] || thumbnailErrors[image.id]) {
         continue;
       }
@@ -426,6 +466,31 @@ function App() {
     collectionCoverRequests.current.clear();
     imageVirtualizer.measure();
   }, [thumbnailSize]);
+
+  useEffect(() => {
+    imageVirtualizer.measure();
+  }, [imageGridColumnCount, imageViewMode]);
+
+  useEffect(() => {
+    const element = imageListRef.current;
+    if (!element) {
+      return;
+    }
+
+    const updateGridColumns = () => {
+      const availableWidth = Math.max(1, element.clientWidth - 24);
+      setImageGridColumnCount(Math.max(1, Math.floor(availableWidth / gridTileWidth)));
+    };
+
+    updateGridColumns();
+    if (typeof ResizeObserver === "undefined") {
+      return;
+    }
+
+    const observer = new ResizeObserver(updateGridColumns);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [gridTileWidth, imageViewMode, selectedCollectionId]);
 
   useEffect(() => {
     if (!isTauriRuntime() || visibleCollections.length === 0) {
@@ -478,6 +543,7 @@ function App() {
 
     listen<ImportFolderProgress>("import-folder-progress", (event) => {
       const progress = event.payload;
+      setImportProgress(progress);
       if (progress.phase === "completed") {
         setNotice(
           `导入 ${progress.collectionCount} 个合集：扫描 ${progress.scannedCount} 张，新增 ${progress.insertedCount} 张，更新 ${progress.updatedCount} 张，错误 ${progress.errorCount} 个`,
@@ -487,7 +553,7 @@ function App() {
 
       const action = progress.phase === "imported" ? "已导入" : progress.phase === "skipped" ? "已跳过" : "正在扫描";
       setNotice(
-        `${action} ${progress.currentName}，已处理 ${progress.processedCount} 个目录，生成 ${progress.collectionCount} 个合集`,
+        `${action} ${progress.currentName}，目录 ${progress.processedCount}/${progress.totalCount || "?"}，生成 ${progress.collectionCount} 个合集`,
       );
     }).then((value) => {
       unlistenImportProgress = value;
@@ -788,6 +854,7 @@ function App() {
     importInFlight.current = true;
     setError(null);
     setNotice(null);
+    setImportProgress(null);
     setIsImporting(true);
 
     if (!isTauriRuntime()) {
@@ -800,6 +867,7 @@ function App() {
     try {
       const folder = await invoke<string | null>("choose_import_folder");
       if (!folder) {
+        setImportProgress(null);
         setIsImporting(false);
         return;
       }
@@ -824,6 +892,7 @@ function App() {
         await refreshAppData();
         setActiveView("all");
         setSelectedCollectionId(null);
+        setImportProgress(null);
         setNotice("导入已取消，已刷新已导入合集");
         return;
       }
@@ -1260,79 +1329,66 @@ function App() {
     }
   }
 
-  async function createTag() {
-    const name = window.prompt("标签名称")?.trim();
-    if (!name) {
-      return;
-    }
-
-    const color = window.prompt("标签颜色 #RRGGBB", "#4f7cff")?.trim();
-    if (color === undefined) {
-      return;
-    }
-
-    setError(null);
-    setNotice(null);
-
-    if (!isTauriRuntime()) {
-      setNotice("请在桌面应用中创建标签");
-      return;
-    }
-
-    try {
-      await invoke<PhotoTag>("create_tag", {
-        request: { name, color: color || null },
-      });
-      await refreshTags();
-      await refreshStatus();
-      setNotice("标签已创建");
-    } catch (value) {
-      setError(invokeErrorMessage(value));
-    }
+  function resetTagDraft() {
+    setTagDraftName("");
+    setTagDraftColor("#4f7cff");
+    setEditingTagId(null);
   }
 
-  async function editTag() {
-    const tag = chooseTag("编辑标签");
-    if (!tag) {
-      return;
-    }
+  function startEditTag(tag: PhotoTag) {
+    setTagDraftName(tag.name);
+    setTagDraftColor(tag.color);
+    setEditingTagId(tag.id);
+    setActiveView("tags");
+    setSelectedCollectionId(null);
+    setError(null);
+    setNotice(null);
+  }
 
-    const name = window.prompt("标签名称", tag.name)?.trim();
+  async function saveTagDraft(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const name = tagDraftName.trim();
     if (!name) {
-      return;
-    }
-
-    const color = window.prompt("标签颜色 #RRGGBB", tag.color)?.trim();
-    if (color === undefined) {
       return;
     }
 
     setError(null);
     setNotice(null);
+    setIsTagSaving(true);
 
     if (!isTauriRuntime()) {
-      setNotice("请在桌面应用中编辑标签");
+      setNotice("请在桌面应用中保存标签");
+      setIsTagSaving(false);
       return;
     }
 
     try {
-      await invoke<PhotoTag>("update_tag", {
-        request: { id: tag.id, name, color: color || tag.color },
-      });
+      if (editingTagId) {
+        await invoke<PhotoTag>("update_tag", {
+          request: { id: editingTagId, name, color: tagDraftColor },
+        });
+      } else {
+        await invoke<PhotoTag>("create_tag", {
+          request: { name, color: tagDraftColor },
+        });
+      }
       await refreshTags();
       await refreshCollectionTagAssignments();
       if (selectedCollectionId) {
         await refreshImageTagAssignments(selectedCollectionId);
       }
-      setNotice("标签已保存");
+      await refreshStatus();
+      resetTagDraft();
+      setNotice(editingTagId ? "标签已保存" : "标签已创建");
     } catch (value) {
       setError(invokeErrorMessage(value));
+    } finally {
+      setIsTagSaving(false);
     }
   }
 
-  async function deleteTag() {
-    const tag = chooseTag("删除标签");
-    if (!tag || !window.confirm(`删除标签“${tag.name}”？关联会一并移除。`)) {
+  async function deleteTagRecord(tag: PhotoTag) {
+    if (!window.confirm(`删除标签“${tag.name}”？关联会一并移除。`)) {
       return;
     }
 
@@ -1352,59 +1408,102 @@ function App() {
         await refreshImageTagAssignments(selectedCollectionId);
       }
       await refreshStatus();
+      if (editingTagId === tag.id) {
+        resetTagDraft();
+      }
       setNotice("标签已删除");
     } catch (value) {
       setError(invokeErrorMessage(value));
     }
   }
 
-  async function assignTagsToCollection(collection: Collection) {
-    const tagIds = chooseTagIds("设置合集标签", collectionTagMap[collection.id] ?? []);
-    if (tagIds === null) {
+  function openTagAssignment(target: TagAssignmentTarget, currentTags: PhotoTag[]) {
+    if (tags.length === 0) {
+      setNotice("请先创建标签");
+      setActiveView("tags");
+      setSelectedCollectionId(null);
       return;
     }
 
+    setTagAssignmentTarget(target);
+    setTagAssignmentIds(currentTags.map((tag) => tag.id));
+    setIsTagAssignmentMenuOpen(false);
     setError(null);
     setNotice(null);
-
-    if (!isTauriRuntime()) {
-      setNotice("请在桌面应用中设置合集标签");
-      return;
-    }
-
-    try {
-      const assignedTags = await invoke<PhotoTag[]>("set_collection_tags", {
-        request: { targetId: collection.id, tagIds },
-      });
-      setCollectionTagMap((current) => ({ ...current, [collection.id]: assignedTags }));
-      setNotice("合集标签已更新");
-    } catch (value) {
-      setError(invokeErrorMessage(value));
-    }
   }
 
-  async function assignTagsToImage(image: ImageRecord) {
-    const tagIds = chooseTagIds("设置图片标签", imageTagMap[image.id] ?? []);
-    if (tagIds === null) {
+  function assignTagsToCollection(collection: Collection) {
+    openTagAssignment(
+      { kind: "collection", collection },
+      collectionTagMap[collection.id] ?? [],
+    );
+  }
+
+  function assignTagsToImage(image: ImageRecord) {
+    openTagAssignment({ kind: "image", image }, imageTagMap[image.id] ?? []);
+  }
+
+  async function saveTagAssignment(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!tagAssignmentTarget) {
       return;
     }
 
     setError(null);
     setNotice(null);
+    setIsTagAssignmentSaving(true);
 
     if (!isTauriRuntime()) {
-      setNotice("请在桌面应用中设置图片标签");
+      setNotice("请在桌面应用中设置标签");
+      setIsTagAssignmentSaving(false);
       return;
     }
 
     try {
-      const assignedTags = await invoke<PhotoTag[]>("set_image_tags", {
-        request: { targetId: image.id, tagIds },
-      });
-      setImageTagMap((current) => ({ ...current, [image.id]: assignedTags }));
-      setNotice("图片标签已更新");
+      if (tagAssignmentTarget.kind === "collection") {
+        const assignedTags = await invoke<PhotoTag[]>("set_collection_tags", {
+          request: { targetId: tagAssignmentTarget.collection.id, tagIds: tagAssignmentIds },
+        });
+        setCollectionTagMap((current) => ({
+          ...current,
+          [tagAssignmentTarget.collection.id]: assignedTags,
+        }));
+        setNotice("合集标签已更新");
+      } else if (tagAssignmentTarget.kind === "image") {
+        const assignedTags = await invoke<PhotoTag[]>("set_image_tags", {
+          request: { targetId: tagAssignmentTarget.image.id, tagIds: tagAssignmentIds },
+        });
+        setImageTagMap((current) => ({
+          ...current,
+          [tagAssignmentTarget.image.id]: assignedTags,
+        }));
+        setNotice("图片标签已更新");
+      } else {
+        const failed: string[] = [];
+        let updatedCount = 0;
+        for (const image of tagAssignmentTarget.images) {
+          try {
+            const assignedTags = await invoke<PhotoTag[]>("set_image_tags", {
+              request: { targetId: image.id, tagIds: tagAssignmentIds },
+            });
+            setImageTagMap((current) => ({ ...current, [image.id]: assignedTags }));
+            updatedCount += 1;
+          } catch (value) {
+            failed.push(`${image.fileName}: ${invokeErrorMessage(value)}`);
+          }
+        }
+        clearImageSelection();
+        setNotice(`已设置 ${updatedCount} 张图片的标签`);
+        setError(failed.length > 0 ? failed.join("；") : null);
+      }
+
+      setTagAssignmentTarget(null);
+      setTagAssignmentIds([]);
+      setIsTagAssignmentMenuOpen(false);
     } catch (value) {
       setError(invokeErrorMessage(value));
+    } finally {
+      setIsTagAssignmentSaving(false);
     }
   }
 
@@ -1505,66 +1604,6 @@ function App() {
     }
 
     return candidates.find((collection) => collection.id === value) ?? null;
-  }
-
-  function chooseTag(title: string): PhotoTag | null {
-    if (tags.length === 0) {
-      setNotice("请先创建标签");
-      return null;
-    }
-
-    const options = tags.map((tag, index) => `${index + 1}. ${tag.name}`).join("\n");
-    const value = window.prompt(`${title}\n${options}`)?.trim();
-    if (!value) {
-      return null;
-    }
-
-    const index = Number(value);
-    if (Number.isInteger(index) && index >= 1 && index <= tags.length) {
-      return tags[index - 1];
-    }
-
-    return tags.find((tag) => tag.id === value) ?? null;
-  }
-
-  function chooseTagIds(title: string, currentTags: PhotoTag[]): string[] | null {
-    if (tags.length === 0) {
-      setNotice("请先创建标签");
-      return null;
-    }
-
-    const options = tags.map((tag, index) => `${index + 1}. ${tag.name}`).join("\n");
-    const currentValue = currentTags
-      .map((tag) => tags.findIndex((item) => item.id === tag.id) + 1)
-      .filter((index) => index > 0)
-      .join(", ");
-    const value = window.prompt(
-      `${title}\n${options}\n输入编号，用逗号分隔；留空清空标签。`,
-      currentValue,
-    );
-    if (value === null) {
-      return null;
-    }
-
-    const trimmed = value.trim();
-    if (!trimmed) {
-      return [];
-    }
-
-    const tagIds: string[] = [];
-    for (const token of trimmed.split(/[,，\s]+/).filter(Boolean)) {
-      const index = Number(token);
-      const tag = Number.isInteger(index) ? tags[index - 1] : tags.find((item) => item.id === token);
-      if (!tag) {
-        setError(`无效标签：${token}`);
-        return null;
-      }
-      if (!tagIds.includes(tag.id)) {
-        tagIds.push(tag.id);
-      }
-    }
-
-    return tagIds;
   }
 
   function toggleImageSelection(imageId: string) {
@@ -1704,36 +1743,10 @@ function App() {
       return;
     }
 
-    const tagIds = chooseTagIds("批量设置图片标签", imageTagMap[selectedImages[0].id] ?? []);
-    if (tagIds === null) {
-      return;
-    }
-
-    setError(null);
-    setNotice(null);
-
-    if (!isTauriRuntime()) {
-      setNotice("请在桌面应用中批量设置标签");
-      return;
-    }
-
-    const failed: string[] = [];
-    let updatedCount = 0;
-    for (const image of selectedImages) {
-      try {
-        const assignedTags = await invoke<PhotoTag[]>("set_image_tags", {
-          request: { targetId: image.id, tagIds },
-        });
-        setImageTagMap((current) => ({ ...current, [image.id]: assignedTags }));
-        updatedCount += 1;
-      } catch (value) {
-        failed.push(`${image.fileName}: ${invokeErrorMessage(value)}`);
-      }
-    }
-
-    clearImageSelection();
-    setNotice(`已设置 ${updatedCount} 张图片的标签`);
-    setError(failed.length > 0 ? failed.join("；") : null);
+    openTagAssignment(
+      { kind: "batch", images: selectedImages },
+      imageTagMap[selectedImages[0].id] ?? [],
+    );
   }
 
   async function batchDeleteImages() {
@@ -2418,6 +2431,26 @@ function App() {
                     </option>
                   ))}
                 </select>
+                <div className="segmented-control" aria-label="图片视图">
+                  <button
+                    aria-label="图片列表视图"
+                    className={imageViewMode === "list" ? "active" : ""}
+                    title="列表视图"
+                    type="button"
+                    onClick={() => setImageViewMode("list")}
+                  >
+                    <List size={16} aria-hidden="true" />
+                  </button>
+                  <button
+                    aria-label="图片网格视图"
+                    className={imageViewMode === "grid" ? "active" : ""}
+                    title="网格视图"
+                    type="button"
+                    onClick={() => setImageViewMode("grid")}
+                  >
+                    <Grid2X2 size={16} aria-hidden="true" />
+                  </button>
+                </div>
               </div>
 
               {selectedCollectionTags.length > 0 ? (
@@ -2489,13 +2522,18 @@ function App() {
                 </div>
               ) : null}
 
-              <section className="image-surface" ref={imageListRef} aria-busy={imagesLoading}>
+              <section
+                className={`image-surface ${imageViewMode}`}
+                ref={imageListRef}
+                aria-busy={imagesLoading}
+              >
                 {imagesLoading ? (
                   <div className="empty-state">
                     <h2>加载中</h2>
                     <p>正在读取图片索引。</p>
                   </div>
                 ) : visibleImages.length > 0 ? (
+                  imageViewMode === "list" ? (
                   <div
                     className="image-virtual-space"
                     style={{ height: `${imageVirtualizer.getTotalSize()}px` }}
@@ -2549,6 +2587,7 @@ function App() {
                             {thumbnails[image.id] ? (
                               <img
                                 alt=""
+                                loading="lazy"
                                 src={convertFileSrc(thumbnails[image.id].cachePath)}
                               />
                             ) : (
@@ -2661,6 +2700,63 @@ function App() {
                       );
                     })}
                   </div>
+                  ) : (
+                    <div
+                      className="image-virtual-space image-grid-virtual-space"
+                      style={{ height: `${imageVirtualizer.getTotalSize()}px` }}
+                    >
+                      {imageVirtualizer.getVirtualItems().map((virtualItem) => {
+                        const rowStart = virtualItem.index * imageGridColumnCount;
+                        const rowImages = visibleImages.slice(
+                          rowStart,
+                          rowStart + imageGridColumnCount,
+                        );
+
+                        return (
+                          <div
+                            className="image-grid-row"
+                            key={virtualItem.key}
+                            style={{
+                              gridTemplateColumns: `repeat(${imageGridColumnCount}, minmax(0, 1fr))`,
+                              transform: `translateY(${virtualItem.start}px)`,
+                            }}
+                          >
+                            {rowImages.map((image, columnIndex) => {
+                              const imageIndex = rowStart + columnIndex;
+                              return (
+                                <article
+                                  aria-label={image.fileName}
+                                  className="image-tile"
+                                  key={image.id}
+                                  role="button"
+                                  tabIndex={0}
+                                  onDoubleClick={() => openViewer(imageIndex)}
+                                  onKeyDown={(event) => {
+                                    if (event.key === "Enter") {
+                                      openViewer(imageIndex);
+                                    }
+                                  }}
+                                >
+                                  <div className="image-tile-thumb">
+                                    {thumbnails[image.id] ? (
+                                      <img
+                                        alt=""
+                                        loading="lazy"
+                                        src={convertFileSrc(thumbnails[image.id].cachePath)}
+                                      />
+                                    ) : (
+                                      <FileImage size={24} aria-hidden="true" />
+                                    )}
+                                  </div>
+                                  <strong title={image.fileName}>{image.fileName}</strong>
+                                </article>
+                              );
+                            })}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )
                 ) : (
                   <div className="empty-state">
                     <h2>{images.length > 0 ? "没有匹配图片" : "暂无图片"}</h2>
@@ -2763,38 +2859,80 @@ function App() {
                   <h1>标签</h1>
                   <p className="section-subtitle">{tags.length} 个标签</p>
                 </div>
-                <div className="detail-actions">
-                  <button className="secondary-action" type="button" onClick={() => void createTag()}>
-                    <Tags size={15} aria-hidden="true" />
-                    <span>新建</span>
-                  </button>
-                  <button className="secondary-action" type="button" onClick={() => void editTag()}>
-                    <Pencil size={15} aria-hidden="true" />
-                    <span>编辑</span>
-                  </button>
-                  <button className="secondary-action danger" type="button" onClick={() => void deleteTag()}>
-                    <Trash2 size={15} aria-hidden="true" />
-                    <span>删除</span>
-                  </button>
-                </div>
               </div>
+
+              <form
+                className="tag-editor-panel"
+                aria-label={editingTagId ? "编辑标签" : "新建标签"}
+                onSubmit={(event) => void saveTagDraft(event)}
+              >
+                <label>
+                  <span>标签名称</span>
+                  <input
+                    required
+                    value={tagDraftName}
+                    onChange={(event) => setTagDraftName(event.target.value)}
+                  />
+                </label>
+                <label className="tag-color-field">
+                  <span>颜色</span>
+                  <input
+                    aria-label="标签颜色"
+                    type="color"
+                    value={tagDraftColor}
+                    onChange={(event) => setTagDraftColor(event.target.value)}
+                  />
+                </label>
+                <footer>
+                  {editingTagId ? (
+                    <button className="secondary-action" type="button" onClick={resetTagDraft}>
+                      取消编辑
+                    </button>
+                  ) : null}
+                  <button className="primary-action" disabled={isTagSaving} type="submit">
+                    {isTagSaving ? "保存中" : editingTagId ? "保存标签" : "添加标签"}
+                  </button>
+                </footer>
+              </form>
 
               <section className="tag-gallery" aria-label="标签">
                 {tags.length > 0 ? (
                   tags.map((tag) => (
-                    <button key={tag.id} type="button" onClick={() => openSearchTag(tag)}>
-                      <span className="tag-dot" style={{ background: tag.color }} />
-                      <strong>{tag.name}</strong>
-                      <small>{tag.color}</small>
-                    </button>
+                    <article className="tag-card" key={tag.id}>
+                      <button
+                        className="tag-card-main"
+                        type="button"
+                        onClick={() => openSearchTag(tag)}
+                      >
+                        <span className="tag-dot" style={{ background: tag.color }} />
+                        <strong>{tag.name}</strong>
+                        <small>{tag.color}</small>
+                      </button>
+                      <div className="tag-card-actions">
+                        <button
+                          aria-label={`编辑标签 ${tag.name}`}
+                          className="icon-button compact"
+                          title="编辑标签"
+                          type="button"
+                          onClick={() => startEditTag(tag)}
+                        >
+                          <Pencil size={14} aria-hidden="true" />
+                        </button>
+                        <button
+                          aria-label={`删除标签 ${tag.name}`}
+                          className="icon-button compact danger"
+                          title="删除标签"
+                          type="button"
+                          onClick={() => void deleteTagRecord(tag)}
+                        >
+                          <Trash2 size={14} aria-hidden="true" />
+                        </button>
+                      </div>
+                    </article>
                   ))
                 ) : (
                   <div className="empty-state">
                     <h2>暂无标签</h2>
-                    <button className="primary-action" type="button" onClick={() => void createTag()}>
-                      <Tags size={16} aria-hidden="true" />
-                      <span>新建标签</span>
-                    </button>
                   </div>
                 )}
               </section>
@@ -2836,33 +2974,6 @@ function App() {
                   </select>
                 </div>
                 <div className="collection-view-controls">
-                  <button
-                    aria-label="创建标签"
-                    className="icon-button"
-                    title="创建标签"
-                    type="button"
-                    onClick={() => void createTag()}
-                  >
-                    <Tags size={16} aria-hidden="true" />
-                  </button>
-                  <button
-                    aria-label="编辑标签"
-                    className="icon-button"
-                    title="编辑标签"
-                    type="button"
-                    onClick={() => void editTag()}
-                  >
-                    <Pencil size={16} aria-hidden="true" />
-                  </button>
-                  <button
-                    aria-label="删除标签"
-                    className="icon-button danger"
-                    title="删除标签"
-                    type="button"
-                    onClick={() => void deleteTag()}
-                  >
-                    <Trash2 size={16} aria-hidden="true" />
-                  </button>
                   <div className="segmented-control" aria-label="合集视图">
                     <button
                       aria-label="网格视图"
@@ -3057,6 +3168,24 @@ function App() {
             </div>
           ) : null}
 
+          {importProgress ? (
+            <div className="import-progress" aria-label="导入进度">
+              <div>
+                <strong>{importProgressPhaseText(importProgress.phase)}</strong>
+                <span>
+                  {importProgress.processedCount}/{importProgress.totalCount} 个
+                  {importProgressUnit(importProgress.phase)}，
+                  已生成 {importProgress.collectionCount} 个合集
+                </span>
+              </div>
+              <progress
+                max={Math.max(importProgress.totalCount, 1)}
+                value={Math.min(importProgress.processedCount, Math.max(importProgress.totalCount, 1))}
+              />
+              <small title={importProgress.currentPath}>{importProgress.currentName}</small>
+            </div>
+          ) : null}
+
           <footer className="status-bar">
             {error ? (
               <span className="status-error">{error}</span>
@@ -3242,6 +3371,111 @@ function App() {
         </section>
       ) : null}
 
+      {tagAssignmentTarget ? (
+        <section className="modal-backdrop" role="presentation">
+          <form
+            aria-label="设置标签"
+            className="tag-assignment-modal"
+            onSubmit={(event) => void saveTagAssignment(event)}
+          >
+            <header>
+              <h2>{tagAssignmentTitle}</h2>
+              <button
+                aria-label="关闭标签设置"
+                className="icon-button"
+                title="关闭标签设置"
+                type="button"
+                onClick={() => {
+                  setTagAssignmentTarget(null);
+                  setTagAssignmentIds([]);
+                  setIsTagAssignmentMenuOpen(false);
+                }}
+              >
+                <X size={16} aria-hidden="true" />
+              </button>
+            </header>
+
+            <div className="tag-assignment-field">
+              <span>标签</span>
+              <button
+                aria-label="设置标签"
+                aria-expanded={isTagAssignmentMenuOpen}
+                className="tag-assignment-trigger"
+                type="button"
+                onClick={() => setIsTagAssignmentMenuOpen((current) => !current)}
+              >
+                {tagAssignmentIds.length > 0
+                  ? `已选择 ${tagAssignmentIds.length} 个标签`
+                  : "选择标签"}
+              </button>
+              {isTagAssignmentMenuOpen ? (
+                <div className="tag-assignment-menu" role="group" aria-label="标签选项">
+                  {tags.map((tag) => (
+                    <label key={tag.id}>
+                      <input
+                        checked={tagAssignmentIds.includes(tag.id)}
+                        type="checkbox"
+                        onChange={(event) =>
+                          setTagAssignmentIds((current) =>
+                            event.currentTarget.checked
+                              ? [...current, tag.id]
+                              : current.filter((id) => id !== tag.id),
+                          )
+                        }
+                      />
+                      <span className="tag-dot" style={{ background: tag.color }} />
+                      <strong>{tag.name}</strong>
+                    </label>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+
+            <div className="tag-assignment-preview" aria-label="已选标签">
+              {tagAssignmentIds.length > 0 ? (
+                tagAssignmentIds
+                  .map((id) => tags.find((tag) => tag.id === id))
+                  .filter((tag): tag is PhotoTag => Boolean(tag))
+                  .map((tag) => (
+                    <span className="tag-chip compact" key={tag.id} style={tagChipStyle(tag)}>
+                      {tag.name}
+                    </span>
+                  ))
+              ) : (
+                <small>未选择标签</small>
+              )}
+            </div>
+
+            <footer>
+              <button
+                className="secondary-action"
+                type="button"
+                onClick={() => {
+                  setTagAssignmentIds([]);
+                  setIsTagAssignmentMenuOpen(false);
+                }}
+              >
+                清空
+              </button>
+              <button
+                className="secondary-action"
+                type="button"
+                onClick={() => {
+                  setTagAssignmentTarget(null);
+                  setTagAssignmentIds([]);
+                  setIsTagAssignmentMenuOpen(false);
+                }}
+              >
+                取消
+              </button>
+              <button className="primary-action" disabled={isTagAssignmentSaving} type="submit">
+                {isTagAssignmentSaving ? "保存中" : "保存标签"}
+              </button>
+            </footer>
+          </form>
+        </section>
+      ) : null}
+
       {activeImage ? (
         <section
           aria-label="图片查看器"
@@ -3314,7 +3548,7 @@ function App() {
           </button>
 
           <div className={`viewer-stage ${isInfoPanelOpen ? "with-info" : ""}`}>
-            <div className="viewer-canvas">
+            <div className={`viewer-canvas ${viewerFitMode}`}>
               {viewerImageState === "loading" ? (
                 <div className="viewer-placeholder">正在加载图片</div>
               ) : null}
@@ -3527,6 +3761,30 @@ function collectionViewTitle(
   }
 
   return "全部合集";
+}
+
+function importProgressPhaseText(phase: ImportFolderProgress["phase"]): string {
+  if (phase === "completed") {
+    return "导入完成";
+  }
+
+  if (phase === "imported") {
+    return "已导入";
+  }
+
+  if (phase === "skipped") {
+    return "已跳过";
+  }
+
+  if (phase === "preparing") {
+    return "准备导入";
+  }
+
+  return "正在扫描";
+}
+
+function importProgressUnit(phase: ImportFolderProgress["phase"]): string {
+  return phase === "imported" || phase === "completed" ? "合集" : "目录";
 }
 
 function formatBytes(value: number): string {

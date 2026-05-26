@@ -49,6 +49,21 @@ describe("App", () => {
     expect(screen.getByRole("heading", { name: "标签" })).toBeInTheDocument();
   });
 
+  it("keeps tag creation inside the tag management page", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+
+    expect(screen.queryByRole("button", { name: "创建标签" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "编辑标签" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "删除标签" })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "标签" }));
+
+    expect(screen.getByRole("form", { name: "新建标签" })).toBeInTheDocument();
+    expect(screen.getByLabelText("标签名称")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "添加标签" })).toBeInTheDocument();
+  });
+
   it("keeps toolbar icon actions named when labels are visually hidden", () => {
     render(<App />);
 
