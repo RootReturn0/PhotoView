@@ -49,6 +49,20 @@ describe("App", () => {
     expect(screen.getByRole("heading", { name: "标签" })).toBeInTheDocument();
   });
 
+  it("keeps toolbar icon actions named when labels are visually hidden", () => {
+    render(<App />);
+
+    expect(screen.getByRole("button", { name: "筛选" })).toHaveAttribute("title", "筛选");
+    expect(screen.getByRole("button", { name: "搜索" })).toHaveAttribute("title", "搜索");
+    expect(screen.getByRole("button", { name: "重复检测" })).toHaveAttribute("title", "重复检测");
+    expect(screen.getByRole("button", { name: "同步图库" })).toHaveAttribute("title", "同步图库");
+    expect(
+      screen
+        .getAllByRole("button", { name: "导入文件夹" })
+        .some((button) => button.getAttribute("title") === "导入文件夹"),
+    ).toBe(true);
+  });
+
   it("keeps browser-preview search inside a safe desktop-only state", async () => {
     const user = userEvent.setup();
     render(<App />);

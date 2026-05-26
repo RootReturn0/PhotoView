@@ -85,11 +85,22 @@ pub fn import_collection(
     import_scanned_collection(conn, &root, collection_name, report)
 }
 
+#[cfg(test)]
 pub fn import_scanned_collection(
     conn: &mut Connection,
     root: &Path,
     collection_name: Option<String>,
     report: scanner::ScanReport,
+) -> AppResult<ImportCollectionResult> {
+    import_scanned_collection_with_cancel(conn, root, collection_name, report, || false)
+}
+
+pub fn import_scanned_collection_with_cancel(
+    conn: &mut Connection,
+    root: &Path,
+    collection_name: Option<String>,
+    report: scanner::ScanReport,
+    should_cancel: impl Fn() -> bool,
 ) -> AppResult<ImportCollectionResult> {
     let collection_path = path_to_string(root);
     let tx = conn.transaction()?;
@@ -98,10 +109,18 @@ pub fn import_scanned_collection(
     let mut updated_count = 0;
 
     for candidate in &report.candidates {
+        if should_cancel() {
+            return Err(AppError::new("operation_cancelled", "导入已取消"));
+        }
+
         match upsert_scanned_image(&tx, &collection.id, candidate)? {
             UpsertOutcome::Inserted => inserted_count += 1,
             UpsertOutcome::Updated => updated_count += 1,
         }
+    }
+
+    if should_cancel() {
+        return Err(AppError::new("operation_cancelled", "导入已取消"));
     }
 
     refresh_collection_stats(&tx, &collection.id)?;
@@ -341,6 +360,25 @@ pub fn list_images(conn: &Connection, request: ListImagesRequest) -> AppResult<V
 
     let rows = collect_rows(stmt.query_map(params![limit, offset], image_from_row)?);
     rows
+}
+
+pub fn list_image_paths_for_collection(
+    conn: &Connection,
+    collection_id: &str,
+) -> AppResult<Vec<String>> {
+    let collection_id = require_text(collection_id.to_string(), "合集 ID")?;
+    let mut stmt = conn.prepare(
+        "
+        SELECT path
+        FROM images
+        WHERE collection_id = ?1 AND is_missing = 0
+        ORDER BY path ASC
+        ",
+    )?;
+    let rows = stmt
+        .query_map(params![collection_id], |row| row.get::<_, String>(0))?
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(rows)
 }
 
 pub fn get_image(conn: &Connection, id: &str) -> AppResult<Option<ImageDto>> {

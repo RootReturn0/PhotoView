@@ -12,15 +12,15 @@ mod viewer;
 mod watcher;
 
 use commands::data::{
-    backup_database, clear_thumbnail_cache, copy_image_file, create_collection, create_image,
-    create_tag, delete_collection_record, delete_image_file, delete_image_record, delete_tag,
+    backup_database, cancel_import, clear_thumbnail_cache, copy_image_file, create_tag,
+    delete_collection_record, delete_image_file, delete_image_record, delete_tag,
     enqueue_thumbnail_generation, export_library_data, get_collection, get_image, get_setting,
     get_settings, get_tag, get_task, get_thumbnail, get_thumbnail_cache_stats, get_viewer_image,
-    import_collection, import_folder, list_collection_tag_assignments, list_collections,
-    list_image_tag_assignments, list_images, list_tags, mark_collection_viewed, move_image_file,
-    rebuild_index, rename_image_file, restore_database_from_backup, run_duplicate_detection,
-    search_library, set_collection_tags, set_image_tags, sync_all_collections, sync_collection,
-    update_collection, update_image, update_setting, update_tag,
+    import_folder, list_collection_tag_assignments, list_collections, list_image_tag_assignments,
+    list_images, list_tags, mark_collection_viewed, move_image_file, rebuild_index,
+    rename_image_file, restore_database_from_backup, run_duplicate_detection, search_library,
+    set_collection_tags, set_image_tags, sync_all_collections, sync_collection, update_collection,
+    update_image, update_setting, update_tag,
 };
 use commands::system::{
     choose_import_folder, copy_path_to_clipboard, copy_text_to_clipboard, get_app_status,
@@ -51,9 +51,26 @@ pub fn run() {
             let state = app::AppState::initialize(app.handle())?;
             app.asset_protocol_scope()
                 .allow_directory(&state.paths().thumbnails_dir, true)?;
-            for collection in state.with_db(db::repositories::list_collections)? {
+            let collections = state.with_db(db::repositories::list_collections)?;
+            for collection in &collections {
                 let collection_path = Path::new(&collection.path);
-                if collection_path.is_dir() {
+                if !collection_path.is_dir() {
+                    continue;
+                }
+
+                let has_nested_collection = collections.iter().any(|other| {
+                    other.id != collection.id && Path::new(&other.path).starts_with(collection_path)
+                });
+                if has_nested_collection {
+                    for image_path in state.with_db(|db| {
+                        db::repositories::list_image_paths_for_collection(db, &collection.id)
+                    })? {
+                        let image_path = Path::new(&image_path);
+                        if image_path.is_file() {
+                            app.asset_protocol_scope().allow_file(image_path)?;
+                        }
+                    }
+                } else {
                     app.asset_protocol_scope()
                         .allow_directory(collection_path, true)?;
                 }
@@ -70,9 +87,8 @@ pub fn run() {
             copy_path_to_clipboard,
             list_collections,
             get_collection,
-            create_collection,
-            import_collection,
             import_folder,
+            cancel_import,
             sync_collection,
             sync_all_collections,
             update_collection,
@@ -80,7 +96,6 @@ pub fn run() {
             delete_collection_record,
             list_images,
             get_image,
-            create_image,
             update_image,
             delete_image_record,
             rename_image_file,

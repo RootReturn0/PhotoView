@@ -5,12 +5,20 @@ use crate::{
 };
 use rusqlite::Connection;
 use serde::Serialize;
-use std::{fs, path::Path, sync::Mutex};
+use std::{
+    fs,
+    path::Path,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Mutex,
+    },
+};
 use tauri::{AppHandle, Runtime};
 
 pub struct AppState {
     paths: AppPaths,
     db: Mutex<Connection>,
+    import_cancel_requested: AtomicBool,
 }
 
 #[derive(Debug, Serialize)]
@@ -33,6 +41,7 @@ impl AppState {
         Ok(Self {
             paths,
             db: Mutex::new(db),
+            import_cancel_requested: AtomicBool::new(false),
         })
     }
 
@@ -44,6 +53,7 @@ impl AppState {
         Ok(Self {
             paths,
             db: Mutex::new(db),
+            import_cancel_requested: AtomicBool::new(false),
         })
     }
 
@@ -82,6 +92,18 @@ impl AppState {
 
     pub fn paths(&self) -> &AppPaths {
         &self.paths
+    }
+
+    pub fn reset_import_cancel(&self) {
+        self.import_cancel_requested.store(false, Ordering::SeqCst);
+    }
+
+    pub fn request_import_cancel(&self) {
+        self.import_cancel_requested.store(true, Ordering::SeqCst);
+    }
+
+    pub fn import_cancel_requested(&self) -> bool {
+        self.import_cancel_requested.load(Ordering::SeqCst)
     }
 
     pub fn restore_database_from_backup(&self, backup_path: &Path) -> AppResult<()> {

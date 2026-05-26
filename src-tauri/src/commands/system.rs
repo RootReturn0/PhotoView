@@ -3,7 +3,7 @@ use crate::{
     errors::{AppError, AppResult},
 };
 use std::path::PathBuf;
-use tauri::{AppHandle, Manager, State, Window};
+use tauri::{AppHandle, State, Window};
 use tauri_plugin_clipboard_manager::ClipboardExt;
 use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_fs::FsExt;
@@ -78,11 +78,6 @@ fn allow_selected_directory(window: &Window, path: &PathBuf) -> AppResult<()> {
             .allow_directory(path, true)
             .map_err(|value| AppError::new("scope_error", value.to_string()))?;
     }
-
-    window
-        .state::<tauri::scope::Scopes>()
-        .allow_directory(path, true)
-        .map_err(|value| AppError::new("scope_error", value.to_string()))?;
 
     Ok(())
 }

@@ -87,6 +87,20 @@ type ImportFolderResult = {
   results: ImportCollectionResult[];
 };
 
+type ImportFolderProgress = {
+  rootPath: string;
+  currentPath: string;
+  currentName: string;
+  phase: "preparing" | "scanning" | "skipped" | "imported" | "completed";
+  processedCount: number;
+  collectionCount: number;
+  scannedCount: number;
+  insertedCount: number;
+  updatedCount: number;
+  errorCount: number;
+  skippedDirCount: number;
+};
+
 type Collection = {
   id: string;
   path: string;
@@ -444,6 +458,7 @@ function App() {
 
     let unlistenImport: (() => void) | undefined;
     let unlistenSync: (() => void) | undefined;
+    let unlistenImportProgress: (() => void) | undefined;
 
     listen("menu-import-folder", () => {
       void handleChooseImportFolder();
@@ -461,9 +476,27 @@ function App() {
       unlistenSync = value;
     });
 
+    listen<ImportFolderProgress>("import-folder-progress", (event) => {
+      const progress = event.payload;
+      if (progress.phase === "completed") {
+        setNotice(
+          `导入 ${progress.collectionCount} 个合集：扫描 ${progress.scannedCount} 张，新增 ${progress.insertedCount} 张，更新 ${progress.updatedCount} 张，错误 ${progress.errorCount} 个`,
+        );
+        return;
+      }
+
+      const action = progress.phase === "imported" ? "已导入" : progress.phase === "skipped" ? "已跳过" : "正在扫描";
+      setNotice(
+        `${action} ${progress.currentName}，已处理 ${progress.processedCount} 个目录，生成 ${progress.collectionCount} 个合集`,
+      );
+    }).then((value) => {
+      unlistenImportProgress = value;
+    });
+
     return () => {
       unlistenImport?.();
       unlistenSync?.();
+      unlistenImportProgress?.();
     };
   }, [selectedCollectionId]);
 
@@ -787,10 +820,31 @@ function App() {
         result.collectionCount === 1 ? result.results[0]?.collection.id ?? null : null,
       );
     } catch (value) {
+      if (invokeErrorCode(value) === "operation_cancelled") {
+        await refreshAppData();
+        setActiveView("all");
+        setSelectedCollectionId(null);
+        setNotice("导入已取消，已刷新已导入合集");
+        return;
+      }
+
       setError(invokeErrorMessage(value));
     } finally {
       importInFlight.current = false;
       setIsImporting(false);
+    }
+  }
+
+  async function cancelImport() {
+    if (!isImporting || !isTauriRuntime()) {
+      return;
+    }
+
+    try {
+      setNotice("正在取消导入");
+      await invoke("cancel_import");
+    } catch (value) {
+      setError(invokeErrorMessage(value));
     }
   }
 
@@ -1986,53 +2040,62 @@ function App() {
             }}
           />
           <button
+            aria-label="筛选"
             className="secondary-action"
             type="button"
             aria-pressed={isAdvancedSearchOpen}
+            title="筛选"
             onClick={() => setIsAdvancedSearchOpen((current) => !current)}
           >
             <SlidersHorizontal size={16} aria-hidden="true" />
             <span>筛选</span>
           </button>
           <button
+            aria-label={isSearching ? "搜索中" : "搜索"}
             className="secondary-action"
             type="button"
             disabled={isSearching}
             aria-busy={isSearching}
+            title={isSearching ? "搜索中" : "搜索"}
             onClick={() => void performSearch()}
           >
             <Search size={16} aria-hidden="true" />
             <span>{isSearching ? "搜索中" : "搜索"}</span>
           </button>
           <button
+            aria-label={isDetectingDuplicates ? "重复检测中" : "重复检测"}
             className="secondary-action"
             type="button"
             disabled={isDetectingDuplicates}
             aria-busy={isDetectingDuplicates}
+            title={isDetectingDuplicates ? "重复检测中" : "重复检测"}
             onClick={() => void runDuplicateDetection()}
           >
             <Copy size={16} aria-hidden="true" />
             <span>{isDetectingDuplicates ? "检测中" : "重复"}</span>
           </button>
           <button
+            aria-label={isSyncing ? "同步中" : "同步图库"}
             className="secondary-action"
             type="button"
             disabled={isSyncing}
             aria-busy={isSyncing}
+            title={isSyncing ? "同步中" : "同步图库"}
             onClick={() => void syncLibrary()}
           >
             <RotateCw size={16} aria-hidden="true" />
             <span>{isSyncing ? "同步中" : "同步"}</span>
           </button>
           <button
+            aria-label={isImporting ? "取消导入" : "导入文件夹"}
             className="primary-action"
             type="button"
-            disabled={isImporting}
             aria-busy={isImporting}
-            onClick={handleChooseImportFolder}
+            title={isImporting ? "取消导入" : "导入文件夹"}
+            onClick={isImporting ? cancelImport : handleChooseImportFolder}
           >
             <FolderPlus size={16} aria-hidden="true" />
-            <span>{isImporting ? "导入中" : "导入"}</span>
+            <span>{isImporting ? "取消" : "导入"}</span>
           </button>
         </header>
 
@@ -3394,6 +3457,14 @@ function invokeErrorMessage(value: unknown): string {
   }
 
   return String(value);
+}
+
+function invokeErrorCode(value: unknown): string | null {
+  if (typeof value === "object" && value && "code" in value) {
+    return String(value.code);
+  }
+
+  return null;
 }
 
 function isTauriRuntime(): boolean {

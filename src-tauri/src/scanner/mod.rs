@@ -115,6 +115,7 @@ impl Error for ScanError {}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ScanErrorKind {
+    Cancelled,
     RootMetadata,
     RootNotDirectory,
     ReadDirectory,
@@ -127,6 +128,7 @@ pub enum ScanErrorKind {
 impl fmt::Display for ScanErrorKind {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str(match self {
+            Self::Cancelled => "scan cancelled",
             Self::RootMetadata => "root metadata error",
             Self::RootNotDirectory => "root is not a directory",
             Self::ReadDirectory => "read directory error",
@@ -150,6 +152,13 @@ pub fn is_supported_image_path(path: impl AsRef<Path>) -> bool {
 }
 
 pub fn scan_directory(root: impl AsRef<Path>) -> Result<ScanReport, ScanError> {
+    scan_directory_with_cancel(root, || false)
+}
+
+pub fn scan_directory_with_cancel(
+    root: impl AsRef<Path>,
+    should_cancel: impl Fn() -> bool,
+) -> Result<ScanReport, ScanError> {
     let root = root.as_ref();
     let root_metadata = fs::symlink_metadata(root)
         .map_err(|error| ScanError::new(root, ScanErrorKind::RootMetadata, error))?;
@@ -168,7 +177,7 @@ pub fn scan_directory(root: impl AsRef<Path>) -> Result<ScanReport, ScanError> {
         errors: Vec::new(),
     };
 
-    scan_directory_into(root, &mut report);
+    scan_directory_into(root, &mut report, &should_cancel)?;
     report
         .candidates
         .sort_by(|left, right| left.path.cmp(&right.path));
@@ -219,7 +228,19 @@ pub fn scan_file(path: impl AsRef<Path>) -> Result<Option<ScanCandidate>, ScanEr
     }))
 }
 
-fn scan_directory_into(directory: &Path, report: &mut ScanReport) {
+fn scan_directory_into(
+    directory: &Path,
+    report: &mut ScanReport,
+    should_cancel: &impl Fn() -> bool,
+) -> Result<(), ScanError> {
+    if should_cancel() {
+        return Err(ScanError::new(
+            directory,
+            ScanErrorKind::Cancelled,
+            "scan was cancelled",
+        ));
+    }
+
     let entries = match fs::read_dir(directory) {
         Ok(entries) => entries,
         Err(error) => {
@@ -228,11 +249,19 @@ fn scan_directory_into(directory: &Path, report: &mut ScanReport) {
                 ScanErrorKind::ReadDirectory,
                 error,
             ));
-            return;
+            return Ok(());
         }
     };
 
     for entry in entries {
+        if should_cancel() {
+            return Err(ScanError::new(
+                directory,
+                ScanErrorKind::Cancelled,
+                "scan was cancelled",
+            ));
+        }
+
         let entry = match entry {
             Ok(entry) => entry,
             Err(error) => {
@@ -261,7 +290,7 @@ fn scan_directory_into(directory: &Path, report: &mut ScanReport) {
         }
 
         if file_type.is_dir() {
-            scan_directory_into(&path, report);
+            scan_directory_into(&path, report, should_cancel)?;
             continue;
         }
 
@@ -275,6 +304,8 @@ fn scan_directory_into(directory: &Path, report: &mut ScanReport) {
             Err(error) => report.errors.push(error),
         }
     }
+
+    Ok(())
 }
 
 fn read_raster_dimensions(path: &Path) -> Result<(u32, u32), ScanError> {
@@ -429,6 +460,18 @@ mod tests {
         assert_eq!(report.errors.len(), 1);
         assert_eq!(report.errors[0].path, bad_path);
         assert_eq!(report.errors[0].kind, ScanErrorKind::DecodeDimensions);
+    }
+
+    #[test]
+    fn scan_directory_can_be_cancelled() {
+        let directory = TestDirectory::new("cancel");
+        let image_path = directory.join("good.png");
+        write_png(&image_path, 8, 6);
+
+        let error = scan_directory_with_cancel(&directory.path, || true)
+            .expect_err("cancelled scan should stop before collecting files");
+
+        assert_eq!(error.kind, ScanErrorKind::Cancelled);
     }
 
     #[cfg(unix)]

@@ -3,8 +3,8 @@
 ## Current
 
 - 阶段：阶段 6，性能、功能问题修复。
-- 正在做：阶段 6 新增 TODO 已完成实现、fixtures 验收、最终视觉复审和 `v0.1.1` 发布准备。
-- 下一步：提交并 push `development`，创建并 push `v0.1.1` 发布 tag；后续仍需处理签名、公证、完整 Xcode/DMG 等外部环境阻塞项。
+- 正在做：阶段 6 iteration 复审后的导入、安全授权和可访问性收口，准备提交、push、merge。
+- 下一步：提交并 push `development`，合并到 `master`；发布 tag 需先确认远端既有 `v0.1.1` 的处理方式。
 
 ## Done
 
@@ -83,9 +83,15 @@
 - 已完成 Playwright fixture mock 视觉截图：桌面、设置、详情、移动端均无控制台错误；截图文件为 `visual-photoview-desktop-final.png`、`visual-photoview-detail-final.png`、`visual-photoview-mobile-final.png`、`visual-photoview-settings.png`。
 - 已完成最终移动端视觉修正：手机首屏可见合集卡片，次级操作默认隐藏，最新截图为 `visual-photoview-mobile-polished.png`；视觉 subagent 复审无高/中优先级意见。
 - 已创建 `PRODUCT_ITERATION.md` 记录阶段 6 视觉/产品迭代过程。
+- 已同步 `origin/master` 到 `development`；本地 `development` 当前包含远端 master 最新提交。
+- 已完成 iteration 后续修复：移动端工具栏图标按钮补齐 `aria-label`/`title`；大目录导入按子目录逐个扫描入库并发送进度；支持取消导入，取消后刷新已入库合集；根目录图片与子合集共存时根目录图片单独导入。
+- 已收紧 Tauri asset scope：选择文件夹只授权 FS scope；启动时嵌套合集按图片文件授权；删除父/根合集时不破坏子合集访问；移除未使用的 `import_collection`、`create_collection`、`create_image` command 注册。
+- 已完成最终复审：UI/UX subagent 和技术 subagent 均无高/中优先级意见。
+- 已完成本轮验证：`pnpm test` 8 项通过，`pnpm build` 通过，`cargo fmt --check` 通过，`cargo test` 26 项通过、1 项忽略，`cargo test fixture_acceptance_core_flow -- --ignored` 通过，`pnpm tauri build --debug --bundles app` 通过；Playwright 桌面/移动本地冒烟无控制台错误、无横向溢出，测试页面和 dev server 已关闭。
 
 ## Blocked
 
 - 当前 macOS 机器仅安装 Xcode Command Line Tools，`tauri info` 提示完整 Xcode 未安装；后续 macOS 打包/签名前需要处理。
 - `pnpm tauri build --debug` 可生成 `.app`，但完整 DMG 打包在 `bundle_dmg.sh` 阶段失败；阶段 5 发布打包时需补充排查。
 - 代码签名、公证和自动更新签名需要证书、Apple 账号、Windows 证书以及 `TAURI_SIGNING_PRIVATE_KEY` 等 GitHub Secrets。
+- 远端 `v0.1.1` tag 已存在且指向旧提交 `dae2789`；当前修复发布需要确认新版本 tag 或是否覆盖旧 tag。
