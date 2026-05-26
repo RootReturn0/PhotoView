@@ -16,7 +16,7 @@ use commands::data::{
     create_tag, delete_collection_record, delete_image_file, delete_image_record, delete_tag,
     enqueue_thumbnail_generation, export_library_data, get_collection, get_image, get_setting,
     get_settings, get_tag, get_task, get_thumbnail, get_thumbnail_cache_stats, get_viewer_image,
-    import_collection, list_collection_tag_assignments, list_collections,
+    import_collection, import_folder, list_collection_tag_assignments, list_collections,
     list_image_tag_assignments, list_images, list_tags, mark_collection_viewed, move_image_file,
     rebuild_index, rename_image_file, restore_database_from_backup, run_duplicate_detection,
     search_library, set_collection_tags, set_image_tags, sync_all_collections, sync_collection,
@@ -72,6 +72,7 @@ pub fn run() {
             get_collection,
             create_collection,
             import_collection,
+            import_folder,
             sync_collection,
             sync_all_collections,
             update_collection,
@@ -507,9 +508,9 @@ mod fixture_acceptance_tests {
             512,
         );
         let viewer_preview = viewer::get_or_create_viewer_image(&viewer_request)
-            .expect("webp viewer preview should generate");
-        assert_eq!(viewer_preview.kind.as_str(), "png_preview");
-        assert_eq!(viewer_preview.status.as_str(), "miss");
+            .expect("webp viewer source asset should resolve");
+        assert_eq!(viewer_preview.kind.as_str(), "source");
+        assert_eq!(viewer_preview.status.as_str(), "source");
         assert!(viewer_preview.asset_path.exists());
 
         let svg = find_image(&images, "vector-layout.svg");

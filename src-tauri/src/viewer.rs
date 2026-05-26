@@ -223,7 +223,7 @@ fn should_use_source_asset(path: &Path) -> bool {
             .and_then(|extension| extension.to_str())
             .map(|extension| extension.to_ascii_lowercase())
             .as_deref(),
-        Some("avif" | "gif" | "svg")
+        Some("avif" | "gif" | "svg" | "webp")
     )
 }
 
@@ -428,7 +428,6 @@ mod tests {
             ("sample.bmp", ImageFormat::Bmp),
             ("sample.ico", ImageFormat::Ico),
             ("sample.tiff", ImageFormat::Tiff),
-            ("sample.webp", ImageFormat::WebP),
         ];
 
         for (index, (file_name, format)) in cases.into_iter().enumerate() {
@@ -461,20 +460,25 @@ mod tests {
     }
 
     #[test]
-    fn keeps_avif_gif_and_svg_as_source_assets() {
+    fn keeps_avif_gif_svg_and_webp_as_source_assets() {
         let directory = TestDirectory::new("source-assets");
         let avif_path = directory.join("source.avif");
         let gif_path = directory.join("animated.gif");
+        let webp_path = directory.join("animated.webp");
         let svg_path = directory.join("vector.svg");
         write_image(&avif_path, ImageFormat::Avif);
         write_image(&gif_path, ImageFormat::Gif);
+        write_image(&webp_path, ImageFormat::WebP);
         fs::write(
             &svg_path,
             r#"<svg width="10" height="20" xmlns="http://www.w3.org/2000/svg"></svg>"#,
         )
         .expect("svg fixture should be written");
 
-        for (index, source_path) in [&avif_path, &gif_path, &svg_path].into_iter().enumerate() {
+        for (index, source_path) in [&avif_path, &gif_path, &webp_path, &svg_path]
+            .into_iter()
+            .enumerate()
+        {
             let request = ViewerImageRequest::new(
                 source_path,
                 directory.join("cache"),

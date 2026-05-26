@@ -6,13 +6,14 @@ use crate::{
         ClearThumbnailCacheResult, CollectionDto, CopyImageFileRequest, CreateCollectionRequest,
         CreateImageRequest, CreateTagRequest, DataFileResult, DeleteImageFileRequest,
         DuplicateDetectionRequest, DuplicateDetectionResult, ImageDto, ImportCollectionRequest,
-        ImportCollectionResult, ListCollectionTagAssignmentsRequest,
+        ImportCollectionResult, ImportFolderResult, ListCollectionTagAssignmentsRequest,
         ListImageTagAssignmentsRequest, ListImagesRequest, MoveImageFileRequest,
         RenameImageFileRequest, SearchLibraryRequest, SearchResultsDto, SetTagAssignmentsRequest,
         SettingDto, TagAssignmentDto, TagDto, TaskDto, ThumbnailCacheStatsDto, ThumbnailDto,
         ThumbnailTaskRequest, UpdateCollectionRequest, UpdateImageRequest, UpdateSettingRequest,
         UpdateTagRequest, ViewerImageDto,
     },
+    scanner::{self, ScanReport},
     thumbs::{
         clear_thumbnail_cache as clear_thumbnail_cache_files, collect_thumbnail_cache_stats,
         get_or_create_thumbnail, read_source_metadata, ThumbnailCacheStatus, ThumbnailRequest,
@@ -20,7 +21,10 @@ use crate::{
     viewer::{get_or_create_viewer_image, ViewerImageRequest},
 };
 use chrono::Utc;
-use std::{fs, path::Path};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
 use tauri::{AppHandle, Manager, State};
 
 #[tauri::command]
@@ -47,7 +51,15 @@ pub fn import_collection(
     state: State<'_, AppState>,
     request: ImportCollectionRequest,
 ) -> AppResult<ImportCollectionResult> {
-    let result = state.with_db_mut(|db| repositories::import_collection(db, request))?;
+    let requested_path = request.path.trim().to_string();
+    if requested_path.is_empty() {
+        return Err(AppError::new("validation_error", "合集路径不能为空"));
+    }
+    let root = fs::canonicalize(Path::new(&requested_path))?;
+    let report = scan_directory_for_import(&root)?;
+    let result = state.with_db_mut(|db| {
+        repositories::import_scanned_collection(db, &root, request.name, report)
+    })?;
     let collection_path = Path::new(&result.collection.path);
     if collection_path.is_dir() {
         app.asset_protocol_scope()
@@ -55,6 +67,52 @@ pub fn import_collection(
     }
 
     Ok(result)
+}
+
+#[tauri::command]
+pub fn import_folder(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    request: ImportCollectionRequest,
+) -> AppResult<ImportFolderResult> {
+    let requested_path = request.path.trim().to_string();
+    if requested_path.is_empty() {
+        return Err(AppError::new("validation_error", "导入路径不能为空"));
+    }
+
+    let root = fs::canonicalize(Path::new(&requested_path))?;
+    let targets = scan_import_targets(&root, request.name)?;
+    let skipped_dir_count = targets.skipped_dir_count;
+    let mut results = Vec::new();
+
+    for target in targets.items {
+        let result = state.with_db_mut(|db| {
+            repositories::import_scanned_collection(db, &target.path, target.name, target.report)
+        })?;
+        let collection_path = Path::new(&result.collection.path);
+        if collection_path.is_dir() {
+            app.asset_protocol_scope()
+                .allow_directory(collection_path, true)?;
+        }
+        results.push(result);
+    }
+
+    let collection_count = results.len() as i64;
+    let scanned_count = results.iter().map(|result| result.scanned_count).sum();
+    let inserted_count = results.iter().map(|result| result.inserted_count).sum();
+    let updated_count = results.iter().map(|result| result.updated_count).sum();
+    let error_count = results.iter().map(|result| result.error_count).sum();
+
+    Ok(ImportFolderResult {
+        root_path: root.display().to_string(),
+        collection_count,
+        scanned_count,
+        inserted_count,
+        updated_count,
+        error_count,
+        skipped_dir_count,
+        results,
+    })
 }
 
 #[tauri::command]
@@ -498,6 +556,68 @@ fn uses_source_thumbnail(path: &str) -> bool {
             .as_deref(),
         Some("avif" | "svg")
     )
+}
+
+struct ImportTargets {
+    items: Vec<ScannedImportTarget>,
+    skipped_dir_count: i64,
+}
+
+struct ScannedImportTarget {
+    path: PathBuf,
+    name: Option<String>,
+    report: ScanReport,
+}
+
+fn scan_import_targets(root: &Path, requested_name: Option<String>) -> AppResult<ImportTargets> {
+    let metadata = fs::symlink_metadata(root)?;
+    if metadata.file_type().is_symlink() || !metadata.file_type().is_dir() {
+        return Err(AppError::new(
+            "validation_error",
+            "导入路径必须是真实文件夹，且不会跟随符号链接",
+        ));
+    }
+
+    let mut items = Vec::new();
+    let mut skipped_dir_count = 0;
+    for entry in fs::read_dir(root)? {
+        let entry = entry?;
+        let file_type = entry.file_type()?;
+        if file_type.is_symlink() || !file_type.is_dir() {
+            continue;
+        }
+
+        let path = fs::canonicalize(entry.path())?;
+        let report = scan_directory_for_import(&path)?;
+        if report.candidates.is_empty() {
+            skipped_dir_count += 1;
+            continue;
+        }
+
+        items.push(ScannedImportTarget {
+            path,
+            name: None,
+            report,
+        });
+    }
+
+    if items.is_empty() {
+        let report = scan_directory_for_import(root)?;
+        items.push(ScannedImportTarget {
+            path: root.to_path_buf(),
+            name: requested_name,
+            report,
+        });
+    }
+
+    Ok(ImportTargets {
+        items,
+        skipped_dir_count,
+    })
+}
+
+fn scan_directory_for_import(root: &Path) -> AppResult<ScanReport> {
+    scanner::scan_directory(root).map_err(|value| AppError::new("scan_error", value.to_string()))
 }
 
 fn optional_dimension_to_u32(value: Option<i64>) -> u32 {

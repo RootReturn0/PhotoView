@@ -2,9 +2,9 @@
 
 ## Current
 
-- 阶段：阶段 5，质量、性能与发布。
-- 正在做：`plan.md` 功能已全量实现，阶段 5 本地 QA、CI 和跨平台冒烟已完成。
-- 下一步：处理发布签名、公证、完整 Xcode/DMG 等外部环境阻塞项。
+- 阶段：阶段 6，性能、功能问题修复。
+- 正在做：阶段 6 新增 TODO 已完成实现、fixtures 验收、最终视觉复审和 `v0.1.1` 发布准备。
+- 下一步：提交并 push `development`，创建并 push `v0.1.1` 发布 tag；后续仍需处理签名、公证、完整 Xcode/DMG 等外部环境阻塞项。
 
 ## Done
 
@@ -77,6 +77,12 @@
 - 已补充性能基准说明和本地 fixture 生成脚本：`docs/PERFORMANCE.md` 与 `pnpm bench:fixtures`，生成内容在已忽略的 `fixtures/` 下，不提交图片。
 - 已完成本轮验证：`pnpm test` 6 项通过，`pnpm build` 通过，`cargo fmt --check` 通过，`cargo test` 24 项通过，`pnpm tauri build --debug --bundles app` 通过；Playwright 桌面/移动空态冒烟无横向溢出，favicon 404 已修复。
 - 已完成 GitHub Actions 跨平台冒烟：push CI `26365159170` 在 macOS、Windows、Ubuntu 全部通过；Windows 上因 Tauri/WebView2 测试二进制启动问题改为 `cargo test --no-run`，并继续执行 Tauri no-bundle 构建。
+- 已完成阶段 6 功能修复：侧边栏收藏/最近/标签成为真实导航；设置入口移到侧边栏并成为独立页面；合集卡片支持删除记录；缩略图尺寸变化会重载图片缩略图和合集封面；合集封面自动显示缩略图；WebP 查看器改用源文件以保留动图播放；大文件夹导入新增 `import_folder`，按顶层子目录形成多个合集并将扫描移出 DB 写锁。
+- 已完成阶段 6 白色简约视觉迭代：侧边栏图标导航、白色现代化卡片、独立设置页、封面卡片、移动端布局压缩、次级操作 hover 展示。
+- 已完成阶段 6 验证：`pnpm build` 通过，`pnpm test` 7 项通过，`cargo fmt --check` 通过，`cargo test` 24 项通过、1 项忽略，`cargo test fixture_acceptance_core_flow -- --ignored` 使用 `fixtures/photo-library-basic` 通过，`pnpm tauri build --debug --bundles app` 通过。
+- 已完成 Playwright fixture mock 视觉截图：桌面、设置、详情、移动端均无控制台错误；截图文件为 `visual-photoview-desktop-final.png`、`visual-photoview-detail-final.png`、`visual-photoview-mobile-final.png`、`visual-photoview-settings.png`。
+- 已完成最终移动端视觉修正：手机首屏可见合集卡片，次级操作默认隐藏，最新截图为 `visual-photoview-mobile-polished.png`；视觉 subagent 复审无高/中优先级意见。
+- 已创建 `PRODUCT_ITERATION.md` 记录阶段 6 视觉/产品迭代过程。
 
 ## Blocked
 

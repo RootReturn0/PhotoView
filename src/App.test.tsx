@@ -26,13 +26,27 @@ describe("App", () => {
     render(<App />);
 
     await user.click(screen.getByRole("button", { name: "设置" }));
-    expect(screen.getByLabelText("设置")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "设置" })).toBeInTheDocument();
     expect(screen.getByLabelText("主题")).toHaveValue("system");
     expect(screen.getByLabelText("缩略图")).toHaveValue(192);
 
     await user.click(screen.getByRole("button", { name: "筛选" }));
     expect(screen.getByLabelText("高级搜索")).toBeInTheDocument();
     expect(screen.getByLabelText("搜索格式")).toBeInTheDocument();
+  });
+
+  it("switches sidebar navigation views", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.click(screen.getByRole("button", { name: "收藏" }));
+    expect(screen.getByRole("heading", { name: "收藏合集" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "最近" }));
+    expect(screen.getByRole("heading", { name: "最近浏览" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "标签" }));
+    expect(screen.getByRole("heading", { name: "标签" })).toBeInTheDocument();
   });
 
   it("keeps browser-preview search inside a safe desktop-only state", async () => {
