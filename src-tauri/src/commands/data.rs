@@ -27,6 +27,8 @@ use std::{
 };
 use tauri::{AppHandle, Emitter, Manager, State};
 
+const IMPORT_DISCOVERY_PROGRESS_INTERVAL: usize = 25;
+
 #[tauri::command]
 pub fn list_collections(state: State<'_, AppState>) -> AppResult<Vec<CollectionDto>> {
     state.with_db(repositories::list_collections)
@@ -38,9 +40,17 @@ pub fn get_collection(state: State<'_, AppState>, id: String) -> AppResult<Optio
 }
 
 #[tauri::command]
-pub fn import_folder(
+pub async fn import_folder(
     app: AppHandle,
-    state: State<'_, AppState>,
+    request: ImportCollectionRequest,
+) -> AppResult<ImportFolderResult> {
+    tauri::async_runtime::spawn_blocking(move || import_folder_blocking(app, request))
+        .await
+        .map_err(AppError::from)?
+}
+
+fn import_folder_blocking(
+    app: AppHandle,
     request: ImportCollectionRequest,
 ) -> AppResult<ImportFolderResult> {
     let requested_path = request.path.trim().to_string();
@@ -51,6 +61,7 @@ pub fn import_folder(
     let root = fs::canonicalize(Path::new(&requested_path))?;
     validate_import_root(&root)?;
 
+    let state = app.state::<AppState>();
     let app_state = state.inner();
     app_state.reset_import_cancel();
     let _import_session = ImportCancelSession { state: app_state };
@@ -73,6 +84,10 @@ pub fn import_folder(
     );
 
     let discovery = collect_import_directories(&root, app_state, |discovered, skipped| {
+        if discovered > 1 && discovered % IMPORT_DISCOVERY_PROGRESS_INTERVAL != 0 {
+            return;
+        }
+
         emit_import_progress(
             &app,
             import_progress(
@@ -103,7 +118,7 @@ pub fn import_folder(
         ),
     );
 
-    let mut pending_imports = Vec::new();
+    let requested_name = request.name;
     for (index, target_path) in target_dirs.iter().enumerate() {
         ensure_import_not_cancelled(app_state)?;
         let scanned_dir_count = index as i64;
@@ -124,13 +139,14 @@ pub fn import_folder(
             Ok(report) => report,
             Err(error) if error.code != "operation_cancelled" => {
                 skipped_dir_count += 1;
+                processed_count = scanned_dir_count + 1;
                 emit_import_progress(
                     &app,
                     import_progress(
                         &root,
                         target_path,
                         "skipped",
-                        scanned_dir_count + 1,
+                        processed_count,
                         total_directory_count,
                         skipped_dir_count,
                         &results,
@@ -144,13 +160,14 @@ pub fn import_folder(
 
         if report.candidates.is_empty() {
             skipped_dir_count += 1;
+            processed_count = scanned_dir_count + 1;
             emit_import_progress(
                 &app,
                 import_progress(
                     &root,
                     target_path,
                     "skipped",
-                    scanned_dir_count + 1,
+                    processed_count,
                     total_directory_count,
                     skipped_dir_count,
                     &results,
@@ -164,58 +181,41 @@ pub fn import_folder(
             .iter()
             .map(|candidate| candidate.path.clone())
             .collect::<Vec<_>>();
-        pending_imports.push(PendingImport {
-            path: target_path.clone(),
-            report,
-            image_paths,
-        });
-    }
-
-    let requested_name = request.name;
-    let pending_paths = pending_imports
-        .iter()
-        .map(|pending| pending.path.clone())
-        .collect::<Vec<_>>();
-    let total_count = pending_imports.len() as i64;
-    processed_count = 0;
-
-    for pending in pending_imports {
-        ensure_import_not_cancelled(app_state)?;
-        let collection_name = if pending.path == root {
+        let collection_name = if *target_path == root {
             requested_name.clone()
         } else {
             None
         };
-        let has_nested_collection = pending_paths
+        let has_nested_collection = target_dirs
             .iter()
-            .any(|other| other != &pending.path && other.starts_with(&pending.path));
+            .any(|other| other != target_path && other.starts_with(target_path));
 
         let result = state.with_db_mut(|db| {
             repositories::import_scanned_collection_with_cancel(
                 db,
-                &pending.path,
+                target_path,
                 collection_name,
-                pending.report,
+                report,
                 || app_state.import_cancel_requested(),
             )
         })?;
         let collection_path = Path::new(&result.collection.path);
         if has_nested_collection {
-            allow_asset_files(&app, &pending.image_paths)?;
+            allow_asset_files(&app, &image_paths)?;
         } else if collection_path.is_dir() {
             app.asset_protocol_scope()
                 .allow_directory(collection_path, true)?;
         }
         results.push(result);
-        processed_count += 1;
+        processed_count = scanned_dir_count + 1;
         emit_import_progress(
             &app,
             import_progress(
                 &root,
-                &pending.path,
+                target_path,
                 "imported",
                 processed_count,
-                total_count,
+                total_directory_count,
                 skipped_dir_count,
                 &results,
             ),
@@ -249,7 +249,7 @@ pub fn import_folder(
                 .unwrap_or_else(|| result.root_path.clone()),
             phase: "completed".to_string(),
             processed_count,
-            total_count,
+            total_count: total_directory_count,
             collection_count: result.collection_count,
             scanned_count: result.scanned_count,
             inserted_count: result.inserted_count,
@@ -741,12 +741,6 @@ struct ImportFolderProgress {
 struct ImportDirectoryDiscovery {
     directories: Vec<PathBuf>,
     skipped_dir_count: i64,
-}
-
-struct PendingImport {
-    path: PathBuf,
-    report: ScanReport,
-    image_paths: Vec<PathBuf>,
 }
 
 struct ImportCancelSession<'a> {

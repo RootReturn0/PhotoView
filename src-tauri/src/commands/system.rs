@@ -15,7 +15,7 @@ pub fn get_app_status(state: State<'_, AppState>) -> AppResult<AppStatus> {
 }
 
 #[tauri::command]
-pub fn choose_import_folder(window: Window) -> AppResult<Option<String>> {
+pub async fn choose_import_folder(window: Window) -> AppResult<Option<String>> {
     let Some(folder) = window
         .dialog()
         .file()

@@ -3856,8 +3856,8 @@ function importProgressPhaseText(phase: ImportFolderProgress["phase"]): string {
   return "正在扫描";
 }
 
-function importProgressUnit(phase: ImportFolderProgress["phase"]): string {
-  return phase === "imported" || phase === "completed" ? "合集" : "目录";
+function importProgressUnit(_phase: ImportFolderProgress["phase"]): string {
+  return "目录";
 }
 
 function formatBytes(value: number): string {
