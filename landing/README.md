@@ -42,5 +42,12 @@ For Cloudflare Pages:
 
 - Build command: `exit 0`
 - Build output directory: `landing`
+- Production branch: `main`
+
+After authenticating Wrangler, direct upload is also available:
+
+```sh
+wrangler pages deploy landing --project-name photoview
+```
 
 For Reddit, share the English page URL directly.
