@@ -4,10 +4,11 @@ This folder contains a static landing page for early-user validation.
 
 ## Preview
 
-Open these files directly in a browser:
+Open these routes in a local static server:
 
-- Chinese: `landing/index.html`
-- English: `landing/en.html`
+- Chinese: `/zh/index.html`
+- English: `/en/index.html`
+- Root: `/` redirects by browser language: Chinese browsers go to `/zh/index.html`, everything else goes to `/en/index.html`.
 
 The pages are self-contained for static hosting and reference assets from `landing/assets/`.
 
@@ -50,4 +51,4 @@ After authenticating Wrangler, direct upload is also available:
 wrangler pages deploy landing --project-name photoview
 ```
 
-For Reddit, share the English page URL directly.
+For Reddit, share the `/en/index.html` URL directly.

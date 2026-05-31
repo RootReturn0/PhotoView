@@ -3,8 +3,8 @@
 ## Current
 
 - 阶段：阶段 6 后，落地页部署准备。
-- 正在做：准备将 `landing/` 部署到 Cloudflare Pages。
-- 下一步：在 Cloudflare Pages 连接 `RootReturn0/PhotoView`，生产分支选 `main`，构建输出目录选 `landing`。
+- 正在做：落地页已部署到 Cloudflare Pages。
+- 下一步：需要时配置自定义域名，并提交/推送当前落地页路由改动。
 
 ## Done
 
@@ -97,21 +97,24 @@
 - 已完成本轮验证：`pnpm test` 10 项通过，`pnpm build` 通过，`cargo fmt --check` 通过，`cargo test` 26 项通过、1 项忽略，`cargo test fixture_acceptance_core_flow -- --ignored` 通过，`pnpm tauri build --debug --bundles app` 通过；Playwright 冒烟通过，桌面/移动无横向溢出、无 console/page error，测试浏览器和 dev server 已关闭。
 - QA subagent 复审结论：无高/中优先级问题；低风险为合集仍是前端分批渲染而非后端分页、竖图修复主要依赖 CSS 和 Playwright 冒烟。
 - 已新增 `docs/LAUNCH_FIRST_USERS.md`，包含首批用户招募落地页文案、中文/英文发帖模板、私信模板、反馈表问题、7 天推广步骤、指标和 FAQ。
-- 已新增 `landing/index.html` 和 `landing/README.md`，提供可直接打开的 PhotoView 静态落地页，CTA 当前指向 GitHub Release、Issues 和仓库首页。
+- 已新增 `landing/index.html` 和 `landing/README.md`，提供 PhotoView 静态落地页，CTA 当前指向 GitHub Release、Issues 和仓库首页。
 - 已完成落地页本地预览：桌面 1440x960、窄屏 390x844 均无横向溢出，图片资源全部加载成功。
 - 已按产品边界移除落地页中的移动端软件截图引用，窄屏网页预览改用桌面应用截图背景。
 - 已调整落地页真实截图展示比例：清除 `figure` 默认外边距，截图区统一为 16:10 桌面窗口比例，首屏背景截图尺寸改为更接近桌面软件预览。
 - 已修复落地页截图区左侧卡片底部空白：截图 grid 改为顶部对齐，避免左侧主截图卡片被右侧双截图列强行拉高。
-- 已新增 Reddit 可用的英文落地页 `landing/en.html`，中文页增加 `English` 切换入口，英文页可切回中文页。
+- 已新增 Reddit 可用的英文落地页，中文页增加 `English` 切换入口，英文页可切回中文页。
 - 已将英文落地页截图替换为英文界面截图：`visual-language-en-home.png`、`visual-language-en-filters.png`、`visual-language-en-settings.png`。
 - 已将中英文落地页首屏和主展示图替换为真实扫描使用截图：`visual-photoview-scanning-cn.png`、`visual-photoview-scanning-en.png`。
 - 已将中英文落地页首屏平台文案调整为支持 Windows/macOS/Linux。
 - 已将中英文落地页转为免费使用 + GitHub star + 可选支持者赞助的定位，弱化试用/付费授权表达。
 - 已将中英文落地页底部 CTA 从索要 star 的项目视角改为用户视角的真实图库试用文案。
 - 已将落地页项目仓库、Release、Issue 和支持开发链接统一到 `RootReturn0/PhotoView` 与 `RootReturn0` GitHub Sponsors。
-- 已将落地页资源改为自包含：截图和 favicon 复制到 `landing/assets/`，HTML 改用 `./assets/...`，便于 Cloudflare Pages 直接发布 `landing/`。
+- 已将落地页资源改为自包含：截图和 favicon 复制到 `landing/assets/`，HTML 使用相对资源路径，便于 Cloudflare Pages 直接发布 `landing/`。
+- 已将落地页语言链接统一为 `/zh/index.html` 和 `/en/index.html`，根路径 `/` 会按浏览器语言自动跳转：中文到 `/zh/index.html`，其他语言到 `/en/index.html`。
+- 已完成落地页语言跳转本地验证：用 `file://` 直接打开根页时，模拟中文会进入 `zh/index.html`，模拟英文会进入 `en/index.html`，不会再进入目录索引；图片无缺失且无横向溢出。
 - 已将 Git remote 切换为 `git@github.com:RootReturn0/PhotoView.git`；新增远端默认分支 `main` 并删除本地/远端 `master`。
 - 已新增 `wrangler.toml`，配置 Cloudflare Pages 项目名 `photoview` 和输出目录 `landing`；本机 Wrangler 当前未登录，需登录后才能创建/部署 Pages 项目。
+- 已创建 Cloudflare Pages 项目 `photoview` 并部署 `landing/` 到生产环境，Production URL 为 `https://photoview-25w.pages.dev/`，部署 ID 为 `8c035658-0e11-4073-9021-5772e9e82c28`。
 - 已修复 Windows/macOS 导入无响应问题：`choose_import_folder` 和 `import_folder` 改为 async command，`import_folder` 主体通过 `spawn_blocking` 进入阻塞线程池；导入改为按目录扫描后立即入库，不再把全部 `ScanReport` 堆入 `pending_imports`；目录发现进度事件做基础节流；进度条统一显示目录处理进度和已生成合集数。
 - 已完成本轮验证：`cargo fmt --check` 通过，`pnpm build` 通过，`cargo test` 26 项通过、1 项忽略，`pnpm test` 10 项通过，`pnpm tauri build --debug --bundles app` 通过。
 - 已完成主应用中英文切换：新增语言翻译表、侧栏快捷切换按钮、设置页中/英分段按钮，覆盖主界面、设置、搜索/筛选、标签、查看器、提示、确认弹窗和无障碍标签。
