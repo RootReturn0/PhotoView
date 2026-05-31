@@ -45,6 +45,11 @@ For Cloudflare Pages:
 - Build output directory: `landing`
 - Production branch: `main`
 
+For GitHub Actions auto deploy, add these repository secrets:
+
+- `CLOUDFLARE_ACCOUNT_ID`
+- `CLOUDFLARE_API_TOKEN`
+
 After authenticating Wrangler, direct upload is also available:
 
 ```sh

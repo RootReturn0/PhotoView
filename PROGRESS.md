@@ -3,8 +3,8 @@
 ## Current
 
 - 阶段：阶段 6 后，落地页部署准备。
-- 正在做：落地页已部署到 Cloudflare Pages。
-- 下一步：需要时配置自定义域名，并提交/推送当前落地页路由改动。
+- 正在做：落地页已部署到 Cloudflare Pages，并已加入 GitHub Actions 自动部署配置。
+- 下一步：在 GitHub 仓库添加 `CLOUDFLARE_ACCOUNT_ID` 和 `CLOUDFLARE_API_TOKEN` secrets 后，push 到 `main` 会自动部署 `landing/`。
 
 ## Done
 
@@ -115,6 +115,7 @@
 - 已将 Git remote 切换为 `git@github.com:RootReturn0/PhotoView.git`；新增远端默认分支 `main` 并删除本地/远端 `master`。
 - 已新增 `wrangler.toml`，配置 Cloudflare Pages 项目名 `photoview` 和输出目录 `landing`；本机 Wrangler 当前未登录，需登录后才能创建/部署 Pages 项目。
 - 已创建 Cloudflare Pages 项目 `photoview` 并部署 `landing/` 到生产环境，Production URL 为 `https://photoview-25w.pages.dev/`，部署 ID 为 `8c035658-0e11-4073-9021-5772e9e82c28`。
+- 已新增 `.github/workflows/cloudflare-pages.yml`，配置 push 到 `main` 且 landing 相关文件变化时自动部署 `landing/` 到 Cloudflare Pages；同时 CI 监听分支从 `master` 改为 `main`。
 - 已修复 Windows/macOS 导入无响应问题：`choose_import_folder` 和 `import_folder` 改为 async command，`import_folder` 主体通过 `spawn_blocking` 进入阻塞线程池；导入改为按目录扫描后立即入库，不再把全部 `ScanReport` 堆入 `pending_imports`；目录发现进度事件做基础节流；进度条统一显示目录处理进度和已生成合集数。
 - 已完成本轮验证：`cargo fmt --check` 通过，`pnpm build` 通过，`cargo test` 26 项通过、1 项忽略，`pnpm test` 10 项通过，`pnpm tauri build --debug --bundles app` 通过。
 - 已完成主应用中英文切换：新增语言翻译表、侧栏快捷切换按钮、设置页中/英分段按钮，覆盖主界面、设置、搜索/筛选、标签、查看器、提示、确认弹窗和无障碍标签。
