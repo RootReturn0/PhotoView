@@ -263,6 +263,13 @@ const UI_TEXT = {
   cancel: { "zh-CN": "取消", "en-US": "Cancel" },
   importing: { "zh-CN": "导入中", "en-US": "Importing" },
   advancedSearch: { "zh-CN": "高级搜索", "en-US": "Advanced search" },
+  advancedSearchHint: {
+    "zh-CN": "组合格式、尺寸、日期和状态，快速缩小图库范围。",
+    "en-US": "Combine format, dimensions, date, and status to narrow the library.",
+  },
+  commonFilters: { "zh-CN": "常用条件", "en-US": "Common" },
+  imageAttributeFilters: { "zh-CN": "图片属性", "en-US": "Image attributes" },
+  timeFilters: { "zh-CN": "时间范围", "en-US": "Time range" },
   format: { "zh-CN": "格式", "en-US": "Format" },
   tagsLabel: { "zh-CN": "标签", "en-US": "Tags" },
   width: { "zh-CN": "宽度", "en-US": "Width" },
@@ -274,7 +281,7 @@ const UI_TEXT = {
   dimensions: { "zh-CN": "尺寸", "en-US": "Dimensions" },
   minHeight: { "zh-CN": "最小高度", "en-US": "Minimum height" },
   maxHeight: { "zh-CN": "最大高度", "en-US": "Maximum height" },
-  sizeMb: { "zh-CN": "大小 MB", "en-US": "Size MB" },
+  sizeMb: { "zh-CN": "文件大小", "en-US": "File size" },
   minSize: { "zh-CN": "最小大小", "en-US": "Minimum size" },
   maxSize: { "zh-CN": "最大大小", "en-US": "Maximum size" },
   rating: { "zh-CN": "评分", "en-US": "Rating" },
@@ -794,6 +801,8 @@ function App() {
     () => collections.find((collection) => collection.id === selectedCollectionId) ?? null,
     [collections, selectedCollectionId],
   );
+  const isSettingsView = activeView === "settings" && !selectedCollection;
+  const shouldShowLibraryToolbar = !isSettingsView;
 
   const selectedCollectionTags = selectedCollection
     ? collectionTagMap[selectedCollection.id] ?? []
@@ -2655,237 +2664,274 @@ function App() {
         </nav>
       </aside>
 
-      <section className="workspace">
-        <header className="toolbar">
-          <input
-            aria-label={t("search")}
-            placeholder={t("searchPlaceholder")}
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") {
-                void performSearch();
-              }
-            }}
-          />
-          <button
-            aria-label={t("filter")}
-            className="secondary-action"
-            type="button"
-            aria-pressed={isAdvancedSearchOpen}
-            title={t("filter")}
-            onClick={() => setIsAdvancedSearchOpen((current) => !current)}
-          >
-            <SlidersHorizontal size={16} aria-hidden="true" />
-            <span>{t("filter")}</span>
-          </button>
-          <button
-            aria-label={isSearching ? t("searching") : t("search")}
-            className="secondary-action"
-            type="button"
-            disabled={isSearching}
-            aria-busy={isSearching}
-            title={isSearching ? t("searching") : t("search")}
-            onClick={() => void performSearch()}
-          >
-            <Search size={16} aria-hidden="true" />
-            <span>{isSearching ? t("searching") : t("search")}</span>
-          </button>
-          <button
-            aria-label={isDetectingDuplicates ? t("duplicateDetecting") : t("duplicateDetection")}
-            className="secondary-action"
-            type="button"
-            disabled={isDetectingDuplicates}
-            aria-busy={isDetectingDuplicates}
-            title={isDetectingDuplicates ? t("duplicateDetecting") : t("duplicateDetection")}
-            onClick={() => void runDuplicateDetection()}
-          >
-            <Copy size={16} aria-hidden="true" />
-            <span>{isDetectingDuplicates ? t("detecting") : t("duplicateShort")}</span>
-          </button>
-          <button
-            aria-label={isSyncing ? t("syncing") : t("syncLibrary")}
-            className="secondary-action"
-            type="button"
-            disabled={isSyncing}
-            aria-busy={isSyncing}
-            title={isSyncing ? t("syncing") : t("syncLibrary")}
-            onClick={() => void syncLibrary()}
-          >
-            <RotateCw size={16} aria-hidden="true" />
-            <span>{isSyncing ? t("syncing") : t("syncShort")}</span>
-          </button>
-          <button
-            aria-label={isImporting ? t("cancelImport") : t("importFolder")}
-            className="primary-action"
-            type="button"
-            aria-busy={isImporting}
-            title={isImporting ? t("cancelImport") : t("importFolder")}
-            onClick={isImporting ? cancelImport : handleChooseImportFolder}
-          >
-            <FolderPlus size={16} aria-hidden="true" />
-            <span>{isImporting ? t("cancel") : t("importAction")}</span>
-          </button>
-        </header>
+      <section className={`workspace ${shouldShowLibraryToolbar ? "" : "workspace-standalone"}`}>
+        {shouldShowLibraryToolbar ? (
+          <header className="toolbar">
+            <input
+              aria-label={t("search")}
+              placeholder={t("searchPlaceholder")}
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  void performSearch();
+                }
+              }}
+            />
+            <button
+              aria-label={t("filter")}
+              className="secondary-action"
+              type="button"
+              aria-pressed={isAdvancedSearchOpen}
+              title={t("filter")}
+              onClick={() => setIsAdvancedSearchOpen((current) => !current)}
+            >
+              <SlidersHorizontal size={16} aria-hidden="true" />
+              <span>{t("filter")}</span>
+            </button>
+            <button
+              aria-label={isSearching ? t("searching") : t("search")}
+              className="secondary-action"
+              type="button"
+              disabled={isSearching}
+              aria-busy={isSearching}
+              title={isSearching ? t("searching") : t("search")}
+              onClick={() => void performSearch()}
+            >
+              <Search size={16} aria-hidden="true" />
+              <span>{isSearching ? t("searching") : t("search")}</span>
+            </button>
+            <button
+              aria-label={isDetectingDuplicates ? t("duplicateDetecting") : t("duplicateDetection")}
+              className="secondary-action"
+              type="button"
+              disabled={isDetectingDuplicates}
+              aria-busy={isDetectingDuplicates}
+              title={isDetectingDuplicates ? t("duplicateDetecting") : t("duplicateDetection")}
+              onClick={() => void runDuplicateDetection()}
+            >
+              <Copy size={16} aria-hidden="true" />
+              <span>{isDetectingDuplicates ? t("detecting") : t("duplicateShort")}</span>
+            </button>
+            <button
+              aria-label={isSyncing ? t("syncing") : t("syncLibrary")}
+              className="secondary-action"
+              type="button"
+              disabled={isSyncing}
+              aria-busy={isSyncing}
+              title={isSyncing ? t("syncing") : t("syncLibrary")}
+              onClick={() => void syncLibrary()}
+            >
+              <RotateCw size={16} aria-hidden="true" />
+              <span>{isSyncing ? t("syncing") : t("syncShort")}</span>
+            </button>
+            <button
+              aria-label={isImporting ? t("cancelImport") : t("importFolder")}
+              className="primary-action"
+              type="button"
+              aria-busy={isImporting}
+              title={isImporting ? t("cancelImport") : t("importFolder")}
+              onClick={isImporting ? cancelImport : handleChooseImportFolder}
+            >
+              <FolderPlus size={16} aria-hidden="true" />
+              <span>{isImporting ? t("cancel") : t("importAction")}</span>
+            </button>
+          </header>
+        ) : null}
 
         <section className="content">
-          {isAdvancedSearchOpen ? (
+          {shouldShowLibraryToolbar && isAdvancedSearchOpen ? (
             <section className="advanced-search" aria-label={t("advancedSearch")}>
-              <label>
-                <span>{t("format")}</span>
-                <select
-                  multiple
-                  aria-label={t("format")}
-                  value={searchFormats}
-                  onChange={(event) =>
-                    setSearchFormats(
-                      Array.from(event.currentTarget.selectedOptions, (option) => option.value),
-                    )
-                  }
-                >
-                  {SEARCH_FORMATS.map((format) => (
-                    <option key={format} value={format}>
-                      {format.toUpperCase()}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                <span>{t("tagsLabel")}</span>
-                <select
-                  multiple
-                  aria-label={t("tagsLabel")}
-                  value={searchTagIds}
-                  onChange={(event) =>
-                    setSearchTagIds(
-                      Array.from(event.currentTarget.selectedOptions, (option) => option.value),
-                    )
-                  }
-                >
-                  {tags.map((tag) => (
-                    <option key={tag.id} value={tag.id}>
-                      {tag.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                <span>{t("width")}</span>
-                <div className="range-inputs">
-                  <input
-                    aria-label={t("minWidth")}
-                    inputMode="numeric"
-                    placeholder={t("minPlaceholder")}
-                    value={searchMinWidth}
-                    onChange={(event) => setSearchMinWidth(event.target.value)}
-                  />
-                  <input
-                    aria-label={t("maxWidth")}
-                    inputMode="numeric"
-                    placeholder={t("maxPlaceholder")}
-                    value={searchMaxWidth}
-                    onChange={(event) => setSearchMaxWidth(event.target.value)}
-                  />
+              <header className="advanced-search-header">
+                <div>
+                  <strong>{t("advancedSearch")}</strong>
+                  <p>{t("advancedSearchHint")}</p>
                 </div>
-              </label>
-              <label>
-                <span>{t("height")}</span>
-                <div className="range-inputs">
-                  <input
-                    aria-label={t("minHeight")}
-                    inputMode="numeric"
-                    placeholder={t("minPlaceholder")}
-                    value={searchMinHeight}
-                    onChange={(event) => setSearchMinHeight(event.target.value)}
-                  />
-                  <input
-                    aria-label={t("maxHeight")}
-                    inputMode="numeric"
-                    placeholder={t("maxPlaceholder")}
-                    value={searchMaxHeight}
-                    onChange={(event) => setSearchMaxHeight(event.target.value)}
-                  />
+                <div className="advanced-search-actions">
+                  <button className="primary-action" type="button" onClick={() => void performSearch()}>
+                    {t("applyFilters")}
+                  </button>
+                  <button className="secondary-action" type="button" onClick={resetSearchFilters}>
+                    {t("reset")}
+                  </button>
                 </div>
-              </label>
-              <label>
-                <span>{t("sizeMb")}</span>
-                <div className="range-inputs">
-                  <input
-                    aria-label={t("minSize")}
-                    inputMode="decimal"
-                    placeholder={t("minPlaceholder")}
-                    value={searchMinSizeMb}
-                    onChange={(event) => setSearchMinSizeMb(event.target.value)}
-                  />
-                  <input
-                    aria-label={t("maxSize")}
-                    inputMode="decimal"
-                    placeholder={t("maxPlaceholder")}
-                    value={searchMaxSizeMb}
-                    onChange={(event) => setSearchMaxSizeMb(event.target.value)}
-                  />
+              </header>
+
+              <div className="advanced-search-grid">
+                <div className="filter-section">
+                  <h2>{t("commonFilters")}</h2>
+                  <div className="filter-field" role="group" aria-label={t("format")}>
+                    <span>{t("format")}</span>
+                    <div className="format-chip-grid">
+                      {SEARCH_FORMATS.map((format) => {
+                        const isActive = searchFormats.includes(format);
+                        return (
+                          <button
+                            aria-pressed={isActive}
+                            className={isActive ? "active" : ""}
+                            key={format}
+                            type="button"
+                            onClick={() =>
+                              setSearchFormats((current) =>
+                                current.includes(format)
+                                  ? current.filter((item) => item !== format)
+                                  : [...current, format],
+                              )
+                            }
+                          >
+                            {format.toUpperCase()}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                  <label>
+                    <span>{t("tagsLabel")}</span>
+                    <select
+                      multiple
+                      className="compact-multi-select"
+                      aria-label={t("tagsLabel")}
+                      value={searchTagIds}
+                      onChange={(event) =>
+                        setSearchTagIds(
+                          Array.from(event.currentTarget.selectedOptions, (option) => option.value),
+                        )
+                      }
+                    >
+                      {tags.length > 0 ? (
+                        tags.map((tag) => (
+                          <option key={tag.id} value={tag.id}>
+                            {tag.name}
+                          </option>
+                        ))
+                      ) : (
+                        <option disabled value="">
+                          {t("noTags")}
+                        </option>
+                      )}
+                    </select>
+                  </label>
+                  <label>
+                    <span>{t("favorite")}</span>
+                    <select
+                      aria-label={t("favoriteState")}
+                      value={searchFavorite}
+                      onChange={(event) => setSearchFavorite(event.target.value)}
+                    >
+                      <option value="any">{t("any")}</option>
+                      <option value="favorite">{t("favorited")}</option>
+                      <option value="plain">{t("notFavorited")}</option>
+                    </select>
+                  </label>
                 </div>
-              </label>
-              <label>
-                <span>{t("rating")}</span>
-                <div className="range-inputs">
-                  <input
-                    aria-label={t("minRating")}
-                    inputMode="numeric"
-                    placeholder={t("minPlaceholder")}
-                    value={searchMinRating}
-                    onChange={(event) => setSearchMinRating(event.target.value)}
-                  />
-                  <input
-                    aria-label={t("maxRating")}
-                    inputMode="numeric"
-                    placeholder={t("maxPlaceholder")}
-                    value={searchMaxRating}
-                    onChange={(event) => setSearchMaxRating(event.target.value)}
-                  />
+
+                <div className="filter-section filter-section-wide">
+                  <h2>{t("imageAttributeFilters")}</h2>
+                  <div className="filter-field-grid">
+                    <label>
+                      <span>{t("width")}</span>
+                      <div className="range-inputs">
+                        <input
+                          aria-label={t("minWidth")}
+                          inputMode="numeric"
+                          placeholder={`${t("minPlaceholder")} px`}
+                          value={searchMinWidth}
+                          onChange={(event) => setSearchMinWidth(event.target.value)}
+                        />
+                        <input
+                          aria-label={t("maxWidth")}
+                          inputMode="numeric"
+                          placeholder={`${t("maxPlaceholder")} px`}
+                          value={searchMaxWidth}
+                          onChange={(event) => setSearchMaxWidth(event.target.value)}
+                        />
+                      </div>
+                    </label>
+                    <label>
+                      <span>{t("height")}</span>
+                      <div className="range-inputs">
+                        <input
+                          aria-label={t("minHeight")}
+                          inputMode="numeric"
+                          placeholder={`${t("minPlaceholder")} px`}
+                          value={searchMinHeight}
+                          onChange={(event) => setSearchMinHeight(event.target.value)}
+                        />
+                        <input
+                          aria-label={t("maxHeight")}
+                          inputMode="numeric"
+                          placeholder={`${t("maxPlaceholder")} px`}
+                          value={searchMaxHeight}
+                          onChange={(event) => setSearchMaxHeight(event.target.value)}
+                        />
+                      </div>
+                    </label>
+                    <label>
+                      <span>{t("sizeMb")}</span>
+                      <div className="range-inputs">
+                        <input
+                          aria-label={t("minSize")}
+                          inputMode="decimal"
+                          placeholder={`${t("minPlaceholder")} MB`}
+                          value={searchMinSizeMb}
+                          onChange={(event) => setSearchMinSizeMb(event.target.value)}
+                        />
+                        <input
+                          aria-label={t("maxSize")}
+                          inputMode="decimal"
+                          placeholder={`${t("maxPlaceholder")} MB`}
+                          value={searchMaxSizeMb}
+                          onChange={(event) => setSearchMaxSizeMb(event.target.value)}
+                        />
+                      </div>
+                    </label>
+                    <label>
+                      <span>{t("rating")}</span>
+                      <div className="range-inputs">
+                        <input
+                          aria-label={t("minRating")}
+                          inputMode="numeric"
+                          placeholder="0"
+                          value={searchMinRating}
+                          onChange={(event) => setSearchMinRating(event.target.value)}
+                        />
+                        <input
+                          aria-label={t("maxRating")}
+                          inputMode="numeric"
+                          placeholder="5"
+                          value={searchMaxRating}
+                          onChange={(event) => setSearchMaxRating(event.target.value)}
+                        />
+                      </div>
+                    </label>
+                  </div>
                 </div>
-              </label>
-              <label>
-                <span>{t("date")}</span>
-                <div className="range-inputs">
-                  <input
-                    aria-label={t("startDate")}
-                    type="date"
-                    value={searchDateFrom}
-                    onChange={(event) => setSearchDateFrom(event.target.value)}
-                  />
-                  <input
-                    aria-label={t("endDate")}
-                    type="date"
-                    value={searchDateTo}
-                    onChange={(event) => setSearchDateTo(event.target.value)}
-                  />
+
+                <div className="filter-section">
+                  <h2>{t("timeFilters")}</h2>
+                  <label>
+                    <span>{t("date")}</span>
+                    <div className="date-range-inputs">
+                      <input
+                        aria-label={t("startDate")}
+                        type="date"
+                        value={searchDateFrom}
+                        onChange={(event) => setSearchDateFrom(event.target.value)}
+                      />
+                      <input
+                        aria-label={t("endDate")}
+                        type="date"
+                        value={searchDateTo}
+                        onChange={(event) => setSearchDateTo(event.target.value)}
+                      />
+                    </div>
+                  </label>
                 </div>
-              </label>
-              <label>
-                <span>{t("favorite")}</span>
-                <select
-                  aria-label={t("favoriteState")}
-                  value={searchFavorite}
-                  onChange={(event) => setSearchFavorite(event.target.value)}
-                >
-                  <option value="any">{t("any")}</option>
-                  <option value="favorite">{t("favorited")}</option>
-                  <option value="plain">{t("notFavorited")}</option>
-                </select>
-              </label>
-              <div className="advanced-search-actions">
-                <button className="primary-action" type="button" onClick={() => void performSearch()}>
-                  {t("applyFilters")}
-                </button>
-                <button className="secondary-action" type="button" onClick={resetSearchFilters}>
-                  {t("reset")}
-                </button>
               </div>
             </section>
           ) : null}
 
-          {searchResults ? (
+          {shouldShowLibraryToolbar && searchResults ? (
             <section className="search-results" aria-label={t("searchResults")}>
               <header>
                 <strong>{t("searchResults")}</strong>
@@ -2934,7 +2980,7 @@ function App() {
             </section>
           ) : null}
 
-          {duplicateResult ? (
+          {shouldShowLibraryToolbar && duplicateResult ? (
             <section className="duplicate-results" aria-label={t("duplicateResults")}>
               <header>
                 <strong>

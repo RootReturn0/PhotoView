@@ -2,9 +2,9 @@
 
 ## Current
 
-- 阶段：阶段 6 后，落地页部署准备。
-- 正在做：落地页已部署到 Cloudflare Pages，并已加入 GitHub Actions 自动部署配置。
-- 下一步：在 GitHub 仓库添加 `CLOUDFLARE_ACCOUNT_ID` 和 `CLOUDFLARE_API_TOKEN` secrets 后，push 到 `main` 会自动部署 `landing/`。
+- 阶段：阶段 6 后，0.2.2 发布维护。
+- 正在做：已将版本同步到 `0.2.2`，准备提交、推送并发布 GitHub Release。
+- 下一步：提交当前功能改动，推送 `main`，创建 `v0.2.2` release。
 
 ## Done
 
@@ -129,6 +129,18 @@
 - 已移除语言切换成功提示：切换中英文时不再显示 `Language switched to English`，只保留页面文本切换和设置保存逻辑；本轮 `pnpm test` 12 项通过，`pnpm build` 通过。
 - 已将设置页改为上下两段式：偏好设置和数据管理改为纵向堆叠，卡片内部控件自适应分栏；本轮 `pnpm test` 12 项通过，`pnpm build` 通过，Playwright 截图 `settings-page-stacked.png` 无横向溢出，dev server 已关闭。
 - 已将版本同步为 `0.2.1`；发布前验证通过：`pnpm test` 12 项、`pnpm build`、`cargo fmt --check`、`cargo test` 29 项通过 1 项忽略、`cargo test fixture_acceptance_core_flow -- --ignored`、`pnpm tauri build --debug --bundles app`。
+- 已将落地页设置页截图改为从当前项目实际界面生成的中英文桌面截图，并通过 Wrangler 部署到 Cloudflare Pages；生产资源 hash 与本地一致，部署预览为 `https://dcc84e5f.photoview-25w.pages.dev`。
+- 已确认英文落地页旧筛选截图 `visual-language-en-filters.png` 错误停留在设置页；已从当前项目实际界面重新生成英文 `All collections` + 高级筛选面板桌面截图并替换，截图尺寸为 1440x960。
+- 已完成主界面高级筛选布局优化：筛选条件改为“常用条件 / 图片属性 / 时间范围”分组，格式筛选改为 chip，应用/重置按钮移到面板级操作区，标签空态和 px/MB/评分范围提示已补齐；截图为 `screenshots/latest/app-filter-final.png`、`screenshots/latest/app-filter-final-mobile.png`。
+- 本轮验证：`pnpm test` 12 项通过，`pnpm build` 通过，Playwright 桌面/移动端截图无 console error；视觉 subagent 最终确认无高/中/低风险意见。
+- QA subagent 已复核本轮视觉改动：检查 `src/App.tsx`、`src/App.css`、`src/App.test.tsx` diff，复跑 `pnpm test`、`pnpm build`、`git diff --check` 均通过，结论为未发现功能回归。
+- 已按最新高级筛选布局重新生成英文落地页筛选截图 `landing/assets/visual-language-en-filters.png`，截图为当前 `All collections` + `Advanced search` 分组面板，尺寸 1440x960，Chrome DevTools 截图异常数 0。
+- 已新增中文落地页筛选截图 `landing/assets/visual-language-zh-filters.png`，中文页已改用该截图；本地静态验收 `/zh/index.html`、`/en/index.html` 桌面与窄屏均无破图、无异常、无横向溢出。
+- 已通过 Wrangler 部署最新落地页到 Cloudflare Pages，部署预览为 `https://c89ff376.photoview-25w.pages.dev`；生产域名中英文 filter 图片资源 hash 与本地一致。
+- 已将中文落地页截图展示顺序调整为与英文页一致：扫描主图、筛选、图片详情；已用脚本确认中英文展示顺序一致。
+- 已通过 Wrangler 部署截图顺序更新到 Cloudflare Pages，部署预览为 `https://3ff2a519.photoview-25w.pages.dev`；生产域名 `/zh/index.html` 与 `/en/index.html` 已确认截图展示顺序一致，线上中英文筛选截图资源 hash 与本地一致。
+- 已将版本同步为 `0.2.2`：`package.json`、`src-tauri/Cargo.toml`、`src-tauri/Cargo.lock`、`src-tauri/tauri.conf.json`。
+- 0.2.2 发布前验证通过：`pnpm test` 12 项通过、`pnpm build` 通过、`cargo fmt --check` 通过、`cargo test` 29 项通过 1 项忽略、`pnpm tauri build --debug --bundles app` 通过。
 
 ## Blocked
 

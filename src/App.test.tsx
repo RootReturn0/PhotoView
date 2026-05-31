@@ -29,7 +29,7 @@ describe("App", () => {
     expect(screen.getByText("暂无合集")).toBeInTheDocument();
   });
 
-  it("toggles settings and advanced search panels", async () => {
+  it("keeps settings separate from library search controls", async () => {
     const user = userEvent.setup();
     render(<App />);
 
@@ -39,10 +39,12 @@ describe("App", () => {
     expect(screen.getByLabelText("缩略图")).toHaveValue(192);
     expect(screen.getByLabelText("当前数据库路径")).toHaveTextContent("仅桌面应用显示实际路径");
     expect(screen.getByRole("button", { name: "更改位置" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "筛选" })).not.toBeInTheDocument();
 
+    await user.click(screen.getByRole("button", { name: "全部" }));
     await user.click(screen.getByRole("button", { name: "筛选" }));
     expect(screen.getByLabelText("高级搜索")).toBeInTheDocument();
-    expect(screen.getByLabelText("格式")).toBeInTheDocument();
+    expect(screen.getByRole("group", { name: "格式" })).toBeInTheDocument();
   });
 
   it("switches the visible interface language", async () => {

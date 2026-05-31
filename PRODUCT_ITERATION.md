@@ -2,12 +2,15 @@
 
 ## Objective
 
+- 本轮目标：优化主界面高级筛选展开后的布局，让筛选模块在桌面工具型应用里更清晰、紧凑、可扫读；使用视觉 subagent 评审并循环到无高/中/低风险意见。
 - 修复 `TODO.md` 阶段 6 的功能问题，并把 PhotoView 调整为白色、简约、现代的桌面图片管理工具。
 - 验证优先使用仓库 `fixtures/` 图片，避免触碰真实图片库。
 - 视觉评审同时覆盖整体配色布局和局部功能模块，迭代到无高/中优先级意见。
 
 ## Inputs
 
+- 本轮截图：`screenshots/latest/app-filter.png`。
+- 本轮重点文件：`src/App.tsx`、`src/App.css`、`src/App.test.tsx`。
 - `TODO.md` 阶段 6。
 - `AGENTS.md`、`plan.md`、`PROGRESS.md`。
 - 当前 React/Tauri 实现：`src/App.tsx`、`src/App.css`、`src-tauri/src/*`。
@@ -15,6 +18,12 @@
 
 ## Role Findings
 
+- VIS-FILTER-001（高）：高级筛选面板过宽过扁，8 组条件横向均摊，阅读路径混乱。
+- VIS-FILTER-002（高）：应用/重置按钮和字段混排，按钮文字在中文下换行，缺少面板级操作感。
+- VIS-FILTER-003（高）：展开筛选后主内容被明显下压，页面重心从图库管理变成表单编辑。
+- VIS-FILTER-004（中）：格式/标签多选框高度与其他字段不一致，格式列表露出滚动条显粗糙。
+- VIS-FILTER-005（中）：日期输入窄列下显示截断，面板缺少标题和分组提示。
+- VIS-FILTER-006（低）：`大小 MB` 文案生硬，空态高度和边框在筛选展开时偏重，移动端筛选会堆得过长。
 - VIS-MACRO-1：侧边栏原为静态按钮，需成为真实导航。
 - VIS-MACRO-2：白色简约方向需强化视觉层级，减少旧式蓝灰边框感。
 - VIS-MODULE-1：设置需从顶部工具栏移到侧边栏，并成为独立页面。
@@ -61,6 +70,9 @@
 
 ## Implementation Log
 
+- `src/App.tsx`：高级搜索面板改为带标题说明的分组布局，应用/重置按钮移到面板级操作区；格式筛选从粗糙多选框改为紧凑 chip；标签空态显示“无标签”；宽高、文件大小和评分占位符补齐 px/MB/0-5 提示。
+- `src/App.css`：高级搜索从横向均摊表单改为常用条件、图片属性、时间范围三组卡片；桌面分组顶部对齐，移动端压缩 chips/间距并保留主内容入口。
+- `src/App.test.tsx`：更新高级搜索测试，覆盖格式 chip 分组后的可访问结构。
 - `src-tauri/src/commands/data.rs`：新增 `import_folder`，先扫描顶层子目录，再短暂持有 DB 写锁导入；保留单合集导入命令并移出命令层扫描锁。
 - `src-tauri/src/db/repositories.rs`：新增 `import_scanned_collection`，刷新统计时自动补齐/修复合集封面。
 - `src-tauri/src/commands/data.rs`、`src-tauri/src/app.rs`、`src-tauri/src/scanner/mod.rs`、`src-tauri/src/db/repositories.rs`：导入改为逐目录进度事件、扫描/入库可取消、根目录图片单独导入。
@@ -79,6 +91,10 @@
 
 ## Verification
 
+- 本轮筛选页验证：`pnpm test` 12 项通过，`pnpm build` 通过。
+- 本轮筛选页截图：`screenshots/latest/app-filter-final.png`、`screenshots/latest/app-filter-final-mobile.png`。
+- 本轮筛选页 Playwright 验收：桌面/移动端截图无 console error；视觉 subagent 最终确认“无高/中/低风险意见，可以收口”。
+- 本轮筛选页 QA subagent 复核：`pnpm test`、`pnpm build`、`git diff --check` 均通过；确认设置页不显示筛选工具栏、格式 chip/应用/重置逻辑仍接原状态和函数、标签空态不会白屏，未发现功能回归。
 - `pnpm build` 通过。
 - `pnpm test` 通过，8 项前端测试。
 - `cargo fmt --check` 通过。
