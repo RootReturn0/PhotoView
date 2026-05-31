@@ -1,6 +1,6 @@
 # PhotoView Architecture
 
-本文件定义 PhotoView 的工程边界。目标是完整实现 `plan.md` 的所有功能；阶段划分只控制实现顺序，不裁剪功能范围。
+本文件定义 PhotoView 的工程边界。目标是完整实现 `docs/plan.md` 的所有功能；阶段划分只控制实现顺序，不裁剪功能范围。
 
 ## 技术栈
 
@@ -17,7 +17,7 @@
 - `src/`：前端 UI、路由、状态、调用 Tauri command 的客户端封装。
 - `src-tauri/src/`：Rust domain/service/repository/command/task 实现。
 - `src-tauri/capabilities/`：Tauri 权限声明。
-- `docs/`：架构、验收标准、后续设计文档。
+- `docs/`：需求、任务、架构、验收标准、后续设计文档。
 - 用户数据目录：数据库、缩略图缓存、配置文件和任务状态。
 - 导入的图片目录：只保存用户原始文件路径，不把图片复制进应用数据目录，除非用户明确执行复制/移动/合并等操作。
 

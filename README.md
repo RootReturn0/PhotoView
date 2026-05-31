@@ -37,8 +37,8 @@ PhotoView is a local-first, cross-platform image viewer and collection manager. 
 - `src/`: React frontend code.
 - `src-tauri/`：Tauri/Rust 后端、数据库、扫描、缩略图、文件操作和打包配置。
 - `src-tauri/`: Tauri/Rust backend, database, scanning, thumbnails, file operations, and packaging configuration.
-- `docs/`：架构、验收和性能说明。
-- `docs/`: Architecture, acceptance, and performance notes.
+- `docs/`：需求、任务、架构、验收和性能说明。
+- `docs/`: Requirements, tasks, architecture, acceptance, and performance notes.
 - `scripts/bench/`：本地性能测试 fixture 生成脚本。
 - `scripts/bench/`: Local performance fixture generator.
 - `fixtures/`：本地测试图片目录，已被 `.gitignore` 忽略，不提交图片。

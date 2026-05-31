@@ -6,9 +6,9 @@
 
 - [x] 架构 subagent：确定 Tauri 2 + Rust + SQLite + 前端框架方案。
 - [x] 架构 subagent：划分 Rust command/API、数据库、缩略图缓存、配置目录和前端状态边界。
-- [x] 产品 subagent：把 `plan.md` 全部功能整理为可验收清单。
+- [x] 产品 subagent：把 `docs/plan.md` 全部功能整理为可验收清单。
 - [x] 产品 subagent：明确每个功能的完成标准、依赖关系和实现顺序。
-- [x] 产品 subagent：确认阶段划分只控制实现顺序，不裁剪任何 `plan.md` 功能。
+- [x] 产品 subagent：确认阶段划分只控制实现顺序，不裁剪任何 `docs/plan.md` 功能。
 
 ## 阶段 1：基础工程
 
