@@ -1,0 +1,1074 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>PhotoView - A Local-First Image Collection Manager</title>
+    <meta
+      name="description"
+      content="PhotoView turns existing local image folders into browsable, searchable collections without uploading or moving your files."
+    />
+    <meta
+      property="og:title"
+      content="PhotoView - A Local-First Image Collection Manager"
+    />
+    <meta
+      property="og:description"
+      content="Keep your folders in place. Browse WebP/GIF/AVIF collections, tag images, search locally, and clean up duplicates."
+    />
+    <meta property="og:type" content="website" />
+    <meta property="og:image" content="./assets/visual-photoview-scanning-en.png" />
+    <link rel="alternate" hreflang="zh-CN" href="./index.html" />
+    <link rel="alternate" hreflang="en" href="./en.html" />
+    <link rel="icon" href="./assets/icon-128x128.png" />
+    <style>
+      :root {
+        color-scheme: light;
+        font-family:
+          Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+          "Segoe UI", sans-serif;
+        color: #172033;
+        background: #f6f8fb;
+        --muted: #667389;
+        --line: #dce4ef;
+        --surface: #ffffff;
+        --blue: #2563eb;
+        --blue-deep: #1e3a8a;
+        --teal: #0f766e;
+        --amber: #b45309;
+        --shadow: 0 24px 60px rgba(23, 32, 51, 0.12);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html {
+        scroll-behavior: smooth;
+      }
+
+      body {
+        margin: 0;
+        line-height: 1.5;
+        background:
+          linear-gradient(180deg, rgba(246, 248, 251, 0) 0%, #f6f8fb 95%),
+          #f6f8fb;
+      }
+
+      a {
+        color: inherit;
+        text-decoration: none;
+      }
+
+      img {
+        display: block;
+        max-width: 100%;
+      }
+
+      figure {
+        margin: 0;
+      }
+
+      .topbar {
+        position: fixed;
+        inset: 0 0 auto;
+        z-index: 20;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 24px;
+        height: 72px;
+        padding: 0 clamp(18px, 5vw, 72px);
+        background: rgba(255, 255, 255, 0.88);
+        border-bottom: 1px solid rgba(220, 228, 239, 0.82);
+        backdrop-filter: blur(16px);
+      }
+
+      .brand {
+        display: inline-flex;
+        align-items: center;
+        gap: 12px;
+        min-width: 0;
+        font-weight: 800;
+      }
+
+      .brand-mark {
+        display: grid;
+        place-items: center;
+        width: 34px;
+        height: 34px;
+        color: white;
+        background: linear-gradient(135deg, #2563eb, #12b8a6);
+        border-radius: 8px;
+        font-size: 13px;
+        font-weight: 900;
+      }
+
+      .nav {
+        display: flex;
+        align-items: center;
+        gap: 22px;
+        color: #4d5b70;
+        font-size: 14px;
+      }
+
+      .nav a:hover {
+        color: var(--blue);
+      }
+
+      .nav-lang {
+        font-weight: 800;
+      }
+
+      .nav-cta {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 40px;
+        padding: 0 16px;
+        color: white;
+        background: var(--blue);
+        border-radius: 8px;
+        font-weight: 800;
+      }
+
+      .hero {
+        position: relative;
+        min-height: 88vh;
+        overflow: hidden;
+        display: grid;
+        align-items: center;
+        padding: 104px clamp(20px, 7vw, 92px) 72px;
+        background: #edf3fb;
+      }
+
+      .hero::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background:
+          linear-gradient(
+            90deg,
+            rgba(248, 251, 255, 0.98) 0%,
+            rgba(248, 251, 255, 0.92) 36%,
+            rgba(248, 251, 255, 0.38) 65%,
+            rgba(248, 251, 255, 0.08) 100%
+          ),
+          url("./assets/visual-photoview-scanning-en.png") right clamp(24px, 6vw, 92px)
+            center / min(940px, 58vw) auto no-repeat;
+      }
+
+      .hero-content {
+        position: relative;
+        z-index: 1;
+        width: min(640px, 100%);
+        padding-top: 24px;
+      }
+
+      .eyebrow {
+        display: inline-flex;
+        align-items: center;
+        min-height: 32px;
+        padding: 0 12px;
+        margin-bottom: 24px;
+        color: #174b8f;
+        background: #eaf3ff;
+        border: 1px solid #cfe3ff;
+        border-radius: 8px;
+        font-size: 14px;
+        font-weight: 800;
+      }
+
+      h1,
+      h2,
+      h3,
+      p {
+        margin: 0;
+      }
+
+      h1 {
+        max-width: 680px;
+        color: #0f172a;
+        font-size: clamp(42px, 6vw, 76px);
+        line-height: 0.98;
+        letter-spacing: 0;
+      }
+
+      .hero-copy {
+        max-width: 560px;
+        margin-top: 24px;
+        color: #38465b;
+        font-size: 19px;
+      }
+
+      .hero-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+        margin-top: 34px;
+      }
+
+      .button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 48px;
+        padding: 0 20px;
+        border: 1px solid transparent;
+        border-radius: 8px;
+        font-weight: 800;
+      }
+
+      .button.primary {
+        color: white;
+        background: var(--blue);
+        box-shadow: 0 14px 30px rgba(37, 99, 235, 0.24);
+      }
+
+      .button.secondary {
+        color: #172033;
+        background: rgba(255, 255, 255, 0.86);
+        border-color: #cfd9e7;
+      }
+
+      .hero-note {
+        max-width: 560px;
+        margin-top: 18px;
+        color: #667389;
+        font-size: 14px;
+      }
+
+      .section {
+        padding: 76px clamp(20px, 7vw, 92px);
+      }
+
+      .section.compact {
+        padding-top: 48px;
+      }
+
+      .section-head {
+        display: flex;
+        justify-content: space-between;
+        gap: 28px;
+        max-width: 1160px;
+        margin: 0 auto 28px;
+      }
+
+      .section-kicker {
+        margin-bottom: 8px;
+        color: var(--blue);
+        font-size: 14px;
+        font-weight: 900;
+      }
+
+      h2 {
+        color: #101828;
+        font-size: clamp(30px, 4vw, 46px);
+        line-height: 1.08;
+        letter-spacing: 0;
+      }
+
+      .section-text {
+        max-width: 470px;
+        color: var(--muted);
+        font-size: 16px;
+      }
+
+      .proof-grid {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 14px;
+        max-width: 1160px;
+        margin: -34px auto 0;
+        position: relative;
+        z-index: 4;
+      }
+
+      .proof,
+      .feature,
+      .case,
+      details {
+        background: var(--surface);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+      }
+
+      .proof {
+        min-height: 104px;
+        padding: 18px;
+        box-shadow: 0 12px 30px rgba(23, 32, 51, 0.07);
+      }
+
+      .proof strong {
+        display: block;
+        color: #101828;
+        font-size: 25px;
+        line-height: 1;
+      }
+
+      .proof span {
+        display: block;
+        margin-top: 10px;
+        color: var(--muted);
+        font-size: 14px;
+      }
+
+      .feature-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 16px;
+        max-width: 1160px;
+        margin: 0 auto;
+      }
+
+      .feature {
+        min-height: 204px;
+        padding: 22px;
+      }
+
+      .label {
+        display: inline-flex;
+        align-items: center;
+        min-height: 26px;
+        padding: 0 9px;
+        margin-bottom: 18px;
+        border-radius: 8px;
+        font-size: 13px;
+        font-weight: 900;
+      }
+
+      .feature:nth-child(1) .label,
+      .feature:nth-child(4) .label {
+        color: var(--blue-deep);
+        background: #e9f1ff;
+      }
+
+      .feature:nth-child(2) .label,
+      .feature:nth-child(5) .label {
+        color: var(--teal);
+        background: #e6f6f2;
+      }
+
+      .feature:nth-child(3) .label,
+      .feature:nth-child(6) .label {
+        color: var(--amber);
+        background: #fff4df;
+      }
+
+      .feature h3,
+      .case h3 {
+        color: #101828;
+        font-size: 21px;
+        line-height: 1.2;
+      }
+
+      .feature p,
+      .case p,
+      details p {
+        margin-top: 12px;
+        color: var(--muted);
+        font-size: 15px;
+      }
+
+      .showcase {
+        display: grid;
+        grid-template-columns: minmax(0, 1.15fr) minmax(280px, 0.85fr);
+        align-items: start;
+        gap: 18px;
+        max-width: 1160px;
+        margin: 0 auto;
+      }
+
+      .showcase-main,
+      .showcase-side {
+        overflow: hidden;
+        background: var(--surface);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        box-shadow: var(--shadow);
+      }
+
+      .showcase-side {
+        display: grid;
+        gap: 0;
+        box-shadow: 0 16px 40px rgba(23, 32, 51, 0.1);
+      }
+
+      .screenshot-frame {
+        width: 100%;
+        aspect-ratio: 16 / 10;
+        overflow: hidden;
+        background: #eef3fb;
+      }
+
+      .screenshot-frame img {
+        width: 100%;
+        height: 100%;
+        max-width: none;
+        object-fit: cover;
+        object-position: left top;
+      }
+
+      .shot-caption {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 16px 18px;
+        border-top: 1px solid var(--line);
+        color: #38465b;
+        font-size: 14px;
+      }
+
+      .shot-caption strong {
+        color: #172033;
+        font-size: 15px;
+      }
+
+      .use-cases {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 16px;
+        max-width: 1160px;
+        margin: 0 auto;
+      }
+
+      .case {
+        display: grid;
+        grid-template-columns: 120px minmax(0, 1fr);
+        gap: 18px;
+        padding: 18px;
+      }
+
+      .case-marker {
+        display: grid;
+        place-items: center;
+        height: 120px;
+        border-radius: 8px;
+        color: #ffffff;
+        background: linear-gradient(135deg, #2563eb, #0f766e);
+        font-size: 28px;
+        font-weight: 900;
+      }
+
+      .compare {
+        max-width: 1160px;
+        margin: 0 auto;
+        overflow: hidden;
+        background: var(--surface);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+      }
+
+      .compare-row {
+        display: grid;
+        grid-template-columns: 1fr 1fr 1fr;
+        border-top: 1px solid var(--line);
+      }
+
+      .compare-row:first-child {
+        border-top: 0;
+        background: #f9fbff;
+        font-weight: 900;
+      }
+
+      .compare-row div {
+        min-width: 0;
+        padding: 16px 18px;
+        border-left: 1px solid var(--line);
+        color: #46556b;
+      }
+
+      .compare-row div:first-child {
+        border-left: 0;
+        color: #172033;
+        font-weight: 800;
+      }
+
+      .cta {
+        max-width: 1160px;
+        margin: 0 auto;
+        padding: 42px;
+        color: white;
+        background:
+          linear-gradient(rgba(15, 23, 42, 0.72), rgba(15, 23, 42, 0.72)),
+          url("./assets/visual-language-en-settings.png") center / cover no-repeat;
+        border-radius: 8px;
+        box-shadow: var(--shadow);
+      }
+
+      .cta h2,
+      .cta p {
+        color: white;
+      }
+
+      .cta p {
+        max-width: 670px;
+        margin-top: 14px;
+        color: rgba(255, 255, 255, 0.84);
+      }
+
+      .cta-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+        margin-top: 28px;
+      }
+
+      .cta .button.secondary {
+        color: white;
+        background: rgba(255, 255, 255, 0.14);
+        border-color: rgba(255, 255, 255, 0.34);
+      }
+
+      .faq {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 14px;
+        max-width: 1160px;
+        margin: 0 auto;
+      }
+
+      details {
+        padding: 18px 20px;
+      }
+
+      summary {
+        cursor: pointer;
+        color: #172033;
+        font-weight: 850;
+      }
+
+      footer {
+        display: flex;
+        justify-content: space-between;
+        gap: 18px;
+        padding: 28px clamp(20px, 7vw, 92px) 46px;
+        color: #667389;
+        font-size: 14px;
+      }
+
+      @media (max-width: 920px) {
+        .nav a:not(.nav-cta):not(.nav-lang) {
+          display: none;
+        }
+
+        .hero {
+          min-height: 86vh;
+          padding-top: 96px;
+          align-items: end;
+        }
+
+        .hero::before {
+          background:
+            linear-gradient(
+              180deg,
+              rgba(248, 251, 255, 0.42) 0%,
+              rgba(248, 251, 255, 0.92) 47%,
+              rgba(248, 251, 255, 0.98) 100%
+            ),
+            url("./assets/visual-photoview-scanning-en.png") center top 86px /
+              min(620px, 146vw) auto no-repeat;
+        }
+
+        .hero-content {
+          padding-top: 240px;
+        }
+
+        h1 {
+          font-size: 42px;
+        }
+
+        .hero-copy {
+          font-size: 17px;
+        }
+
+        .proof-grid,
+        .feature-grid,
+        .showcase,
+        .use-cases,
+        .faq {
+          grid-template-columns: 1fr;
+        }
+
+        .section-head {
+          display: block;
+        }
+
+        .section-text {
+          margin-top: 14px;
+        }
+      }
+
+      @media (max-width: 640px) {
+        .topbar {
+          height: 64px;
+          padding: 0 16px;
+        }
+
+        .brand {
+          gap: 9px;
+        }
+
+        .nav-cta {
+          min-height: 36px;
+          padding: 0 12px;
+          font-size: 13px;
+        }
+
+        .hero {
+          padding: 82px 16px 48px;
+        }
+
+        .hero-content {
+          padding-top: 250px;
+        }
+
+        .eyebrow {
+          margin-bottom: 16px;
+        }
+
+        h1 {
+          font-size: 38px;
+        }
+
+        .hero-actions,
+        .cta-actions {
+          display: grid;
+        }
+
+        .button {
+          width: 100%;
+        }
+
+        .section {
+          padding: 54px 16px;
+        }
+
+        .section.compact {
+          padding-top: 36px;
+        }
+
+        .proof-grid {
+          margin-top: -22px;
+        }
+
+        .case {
+          grid-template-columns: 1fr;
+        }
+
+        .case-marker {
+          height: 92px;
+        }
+
+        .compare {
+          background: transparent;
+          border: 0;
+        }
+
+        .compare-row {
+          display: block;
+          margin-bottom: 12px;
+          background: var(--surface);
+          border: 1px solid var(--line);
+          border-radius: 8px;
+        }
+
+        .compare-row:first-child {
+          display: none;
+        }
+
+        .compare-row div {
+          border-left: 0;
+          border-top: 1px solid var(--line);
+        }
+
+        .compare-row div:first-child {
+          border-top: 0;
+        }
+
+        .cta {
+          padding: 28px 20px;
+        }
+
+        footer {
+          display: block;
+          padding: 22px 16px 36px;
+        }
+
+        footer div + div {
+          margin-top: 8px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header class="topbar" aria-label="Page navigation">
+      <a class="brand" href="#top" aria-label="PhotoView home">
+        <span class="brand-mark">PV</span>
+        <span>PhotoView</span>
+      </a>
+      <nav class="nav" aria-label="Main navigation">
+        <a href="#features">Features</a>
+        <a href="#screens">Screens</a>
+        <a href="#compare">Compare</a>
+        <a href="#faq">FAQ</a>
+        <a class="nav-lang" href="./index.html" hreflang="zh-CN">中文</a>
+        <a
+          class="nav-cta"
+          href="https://github.com/RootReturn0/PhotoView"
+          >GitHub</a
+        >
+      </nav>
+    </header>
+
+    <main id="top">
+      <section class="hero" aria-labelledby="hero-title">
+        <div class="hero-content">
+          <div class="eyebrow">Local-first · No cloud · Windows / macOS / Linux</div>
+          <h1 id="hero-title">PhotoView</h1>
+          <p class="hero-copy">
+            Turn existing image folders into browsable, searchable collections.
+            Keep your files where they are, tag what matters, and clean up
+            duplicates across WebP, GIF, AVIF, long images, wallpapers, and
+            image packs.
+          </p>
+          <div class="hero-actions">
+            <a
+              class="button primary"
+              href="https://github.com/RootReturn0/PhotoView/releases/latest"
+              >Download free</a
+            >
+            <a
+              class="button secondary"
+              href="https://github.com/RootReturn0/PhotoView"
+              >View GitHub</a
+            >
+            <a
+              class="button secondary"
+              href="https://github.com/sponsors/RootReturn0"
+              >Support development</a
+            >
+          </div>
+          <p class="hero-note">
+            Free to use. If it fits your library, a GitHub star is welcome;
+            sponsorship simply helps keep development moving.
+          </p>
+        </div>
+      </section>
+
+      <section class="section compact" aria-label="Key points">
+        <div class="proof-grid">
+          <div class="proof">
+            <strong>Local</strong>
+            <span>Indexing, thumbnails, search, and duplicate checks run on your machine.</span>
+          </div>
+          <div class="proof">
+            <strong>No moving</strong>
+            <span>Import folders in place and keep your existing directory structure.</span>
+          </div>
+          <div class="proof">
+            <strong>Formats</strong>
+            <span>JPG, PNG, GIF, WebP, AVIF, SVG, TIFF, and common image libraries.</span>
+          </div>
+          <div class="proof">
+            <strong>Organize</strong>
+            <span>Collections, tags, ratings, search, batch actions, and duplicate cleanup.</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="section" id="features">
+        <div class="section-head">
+          <div>
+            <p class="section-kicker">Not just another image viewer</p>
+            <h2>It is for folders that became hard to manage.</h2>
+          </div>
+          <p class="section-text">
+            PhotoView is not trying to replace Lightroom or become a cloud
+            photo service. It is a small local workspace for people who already
+            have many image folders and want them to be easier to browse, find,
+            tag, and clean.
+          </p>
+        </div>
+        <div class="feature-grid">
+          <article class="feature">
+            <span class="label">Import</span>
+            <h3>Existing folders become collections</h3>
+            <p>
+              Pick a folder, scan images, build thumbnails, and keep collection
+              metadata without changing your actual files.
+            </p>
+          </article>
+          <article class="feature">
+            <span class="label">Browse</span>
+            <h3>Scan through large libraries faster</h3>
+            <p>
+              Collection cards, grid/list views, and a built-in viewer make
+              large local libraries easier to inspect.
+            </p>
+          </article>
+          <article class="feature">
+            <span class="label">Formats</span>
+            <h3>WebP, GIF, AVIF, and long images</h3>
+            <p>
+              Built for messy downloaded folders where modern formats, tall
+              images, and mixed file types are normal.
+            </p>
+          </article>
+          <article class="feature">
+            <span class="label">Metadata</span>
+            <h3>Tags, ratings, favorites, recent views</h3>
+            <p>
+              Add the state that plain folders do not have, then find images
+              later without relying only on filenames.
+            </p>
+          </article>
+          <article class="feature">
+            <span class="label">Cleanup</span>
+            <h3>Exact and visual duplicate detection</h3>
+            <p>
+              SHA256 exact duplicate checks and pHash visual similarity checks
+              help clean repeated downloads and near-duplicates.
+            </p>
+          </article>
+          <article class="feature">
+            <span class="label">Safety</span>
+            <h3>Local database, trash by default</h3>
+            <p>
+              The SQLite database stays on your device. Deletions go to the
+              system trash by default to reduce accidental loss.
+            </p>
+          </article>
+        </div>
+      </section>
+
+      <section class="section" id="screens">
+        <div class="section-head">
+          <div>
+            <p class="section-kicker">Real interface</p>
+            <h2>The first screen is the manager.</h2>
+          </div>
+          <p class="section-text">
+            No cloud onboarding and no forced import ceremony. Open the app and
+            you get collections, search, filters, duplicate detection, and sync
+            controls.
+          </p>
+        </div>
+        <div class="showcase">
+          <figure class="showcase-main">
+            <div class="screenshot-frame">
+              <img
+                src="./assets/visual-photoview-scanning-en.png"
+                alt="PhotoView scanning collections screen"
+                width="1202"
+                height="781"
+              />
+            </div>
+            <figcaption class="shot-caption">
+              <strong>Import scanning</strong>
+              <span>Folder scanning, progress feedback, local indexing</span>
+            </figcaption>
+          </figure>
+          <div class="showcase-side">
+            <figure>
+              <div class="screenshot-frame">
+                <img
+                  src="./assets/visual-language-en-filters.png"
+                  alt="PhotoView advanced filters screen"
+                  width="1440"
+                  height="920"
+                />
+              </div>
+              <figcaption class="shot-caption">
+                <strong>Filters</strong>
+                <span>Format, size, rating, date, and favorite filters</span>
+              </figcaption>
+            </figure>
+            <figure>
+              <div class="screenshot-frame">
+                <img
+                  src="./assets/visual-language-en-settings.png"
+                  alt="PhotoView settings screen"
+                  width="1440"
+                  height="920"
+                />
+              </div>
+              <figcaption class="shot-caption">
+                <strong>Local data</strong>
+                <span>Backup, restore, rebuild index, export</span>
+              </figcaption>
+            </figure>
+          </div>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="section-head">
+          <div>
+            <p class="section-kicker">Who it is for</p>
+            <h2>Four heavy local-image workflows.</h2>
+          </div>
+          <p class="section-text">
+            The users are people who
+            already feel the pain of local image folders.
+          </p>
+        </div>
+        <div class="use-cases">
+          <article class="case">
+            <div class="case-marker">01</div>
+            <div>
+              <h3>Wallpaper and image-pack collectors</h3>
+              <p>
+                Many download sources, many folders, inconsistent names, and a
+                need to quickly preview, find, and dedupe.
+              </p>
+            </div>
+          </article>
+          <article class="case">
+            <div class="case-marker">02</div>
+            <div>
+              <h3>Comics, screenshots, and long images</h3>
+              <p>
+                Tall images, WebP, GIF, and mixed formats should not break
+                everyday browsing.
+              </p>
+            </div>
+          </article>
+          <article class="case">
+            <div class="case-marker">03</div>
+            <div>
+              <h3>Reference and inspiration libraries</h3>
+              <p>
+                Tag by project, style, or use case, then recover images later
+                through search and filters.
+              </p>
+            </div>
+          </article>
+          <article class="case">
+            <div class="case-marker">04</div>
+            <div>
+              <h3>AI image output cleanup</h3>
+              <p>
+                Browse, rate, move, and clean batches of generated images after
+                a large run.
+              </p>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section class="section" id="compare">
+        <div class="section-head">
+          <div>
+            <p class="section-kicker">Positioning</p>
+            <h2>It does not replace every image app.</h2>
+          </div>
+          <p class="section-text">
+            If you only open a few photos, the default viewer may be enough. If
+            you need RAW editing, Lightroom is the better tool. PhotoView focuses
+            on local folder organization.
+          </p>
+        </div>
+        <div class="compare" role="table" aria-label="PhotoView comparison">
+          <div class="compare-row" role="row">
+            <div role="columnheader">Tool type</div>
+            <div role="columnheader">Best at</div>
+            <div role="columnheader">Where PhotoView fits</div>
+          </div>
+          <div class="compare-row" role="row">
+            <div role="cell">Windows Photos</div>
+            <div role="cell">Default viewing and simple photo access</div>
+            <div role="cell">Adds collections, tags, search, dedupe, and batch cleanup</div>
+          </div>
+          <div class="compare-row" role="row">
+            <div role="cell">ImageGlass / FastStone</div>
+            <div role="cell">Fast single-image viewing and broad format support</div>
+            <div role="cell">More about managing folder libraries than opening one image</div>
+          </div>
+          <div class="compare-row" role="row">
+            <div role="cell">digiKam / Lightroom</div>
+            <div role="cell">Professional photo management, RAW, and editing workflows</div>
+            <div role="cell">Lighter and focused on existing local folders</div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="cta" id="download">
+          <h2>Start with one real image library.</h2>
+          <p>
+            No account, no folder migration. Download PhotoView, point it at an
+            existing image folder, and see whether search, tags, batch cleanup,
+            and duplicate checks save you time. If it helps, a star or a short
+            bug report is already valuable.
+          </p>
+          <div class="cta-actions">
+            <a
+              class="button primary"
+              href="https://github.com/RootReturn0/PhotoView/releases/latest"
+              >Download free</a
+            >
+            <a
+              class="button secondary"
+              href="https://github.com/RootReturn0/PhotoView"
+              >View GitHub</a
+            >
+            <a
+              class="button secondary"
+              href="https://github.com/sponsors/RootReturn0"
+              >Support development</a
+            >
+            <a
+              class="button secondary"
+              href="https://github.com/RootReturn0/PhotoView/issues/new"
+              >Report feedback</a
+            >
+          </div>
+        </div>
+      </section>
+
+      <section class="section" id="faq">
+        <div class="section-head">
+          <div>
+            <p class="section-kicker">FAQ</p>
+            <h2>Before you download.</h2>
+          </div>
+        </div>
+        <div class="faq">
+          <details open>
+            <summary>Does PhotoView upload my images?</summary>
+            <p>No. Indexing, thumbnails, search, and duplicate checks run locally.</p>
+          </details>
+          <details>
+            <summary>Will it move or change my folders?</summary>
+            <p>
+              Importing and browsing do not move your files. File operations
+              only happen when you explicitly rename, move, copy, or delete.
+            </p>
+          </details>
+          <details>
+            <summary>Is it paid?</summary>
+            <p>
+              The core app is free to use. Donations or supporter downloads are
+              optional ways to fund development; they do not unlock hidden core
+              features.
+            </p>
+          </details>
+          <details>
+            <summary>Is this for professional photographers?</summary>
+            <p>
+              Not primarily. If you need RAW editing and a full photography
+              workflow, this is probably not the right tool.
+            </p>
+          </details>
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      <div>PhotoView · Local-first image collection manager</div>
+      <div>Built with Tauri, Rust, SQLite, React and TypeScript.</div>
+    </footer>
+  </body>
+</html>

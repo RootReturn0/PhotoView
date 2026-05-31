@@ -104,6 +104,12 @@
 - 已修复落地页截图区左侧卡片底部空白：截图 grid 改为顶部对齐，避免左侧主截图卡片被右侧双截图列强行拉高。
 - 已新增 Reddit 可用的英文落地页 `landing/en.html`，中文页增加 `English` 切换入口，英文页可切回中文页。
 - 已将英文落地页截图替换为英文界面截图：`visual-language-en-home.png`、`visual-language-en-filters.png`、`visual-language-en-settings.png`。
+- 已将中英文落地页首屏和主展示图替换为真实扫描使用截图：`visual-photoview-scanning-cn.png`、`visual-photoview-scanning-en.png`。
+- 已将中英文落地页首屏平台文案调整为支持 Windows/macOS/Linux。
+- 已将中英文落地页转为免费使用 + GitHub star + 可选支持者赞助的定位，弱化试用/付费授权表达。
+- 已将中英文落地页底部 CTA 从索要 star 的项目视角改为用户视角的真实图库试用文案。
+- 已将落地页项目仓库、Release、Issue 和支持开发链接统一到 `RootReturn0/PhotoView` 与 `RootReturn0` GitHub Sponsors。
+- 已将落地页资源改为自包含：截图和 favicon 复制到 `landing/assets/`，HTML 改用 `./assets/...`，便于 Cloudflare Pages 直接发布 `landing/`。
 - 已修复 Windows/macOS 导入无响应问题：`choose_import_folder` 和 `import_folder` 改为 async command，`import_folder` 主体通过 `spawn_blocking` 进入阻塞线程池；导入改为按目录扫描后立即入库，不再把全部 `ScanReport` 堆入 `pending_imports`；目录发现进度事件做基础节流；进度条统一显示目录处理进度和已生成合集数。
 - 已完成本轮验证：`cargo fmt --check` 通过，`pnpm build` 通过，`cargo test` 26 项通过、1 项忽略，`pnpm test` 10 项通过，`pnpm tauri build --debug --bundles app` 通过。
 - 已完成主应用中英文切换：新增语言翻译表、侧栏快捷切换按钮、设置页中/英分段按钮，覆盖主界面、设置、搜索/筛选、标签、查看器、提示、确认弹窗和无障碍标签。
