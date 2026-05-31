@@ -35,6 +35,26 @@ pub async fn choose_import_folder(window: Window) -> AppResult<Option<String>> {
 }
 
 #[tauri::command]
+pub async fn choose_database_folder(window: Window) -> AppResult<Option<String>> {
+    let Some(folder) = window
+        .dialog()
+        .file()
+        .set_title("选择数据库存储文件夹")
+        .blocking_pick_folder()
+    else {
+        return Ok(None);
+    };
+
+    let path = folder
+        .into_path()
+        .map_err(|value| AppError::new("invalid_path", value.to_string()))?;
+
+    allow_selected_directory(&window, &path)?;
+
+    Ok(Some(path_to_string(path)))
+}
+
+#[tauri::command]
 pub fn open_path_in_file_manager(app: AppHandle, path: String) -> AppResult<()> {
     let path = existing_path(path)?;
 

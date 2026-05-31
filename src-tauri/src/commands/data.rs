@@ -499,6 +499,18 @@ pub fn restore_database_from_backup(
 }
 
 #[tauri::command]
+pub fn move_database_storage(
+    state: State<'_, AppState>,
+    directory: String,
+) -> AppResult<DataFileResult> {
+    let path = state.move_database_storage(Path::new(&directory))?;
+    Ok(DataFileResult {
+        path: path.display().to_string(),
+        message: "数据库存储路径已更新".to_string(),
+    })
+}
+
+#[tauri::command]
 pub fn rebuild_index(state: State<'_, AppState>) -> AppResult<DataFileResult> {
     let results = state.with_db_mut(repositories::sync_all_collections)?;
     Ok(DataFileResult {

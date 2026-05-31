@@ -122,6 +122,13 @@
 - 已完成主应用中英文切换：新增语言翻译表、侧栏快捷切换按钮、设置页中/英分段按钮，覆盖主界面、设置、搜索/筛选、标签、查看器、提示、确认弹窗和无障碍标签。
 - 已完成本轮验证：`pnpm test` 11 项通过，`pnpm build` 通过；Playwright 已保存中英文桌面/设置/筛选/标签/移动端截图，无 console/page error；视觉 subagent 最终复审“无意见”。
 - 已完成国际化 QA 收口：QA subagent 提出的低风险问题（筛选 min/max 占位符未本地化、侧栏导航 aria 固定英文）已修复；复测 `pnpm test`、`pnpm build`、`cargo fmt --check`、`cargo test`、`cargo test fixture_acceptance_core_flow -- --ignored`、`pnpm tauri build --debug --bundles app` 均通过；浏览器复测中英文筛选占位符、导航 aria、桌面/移动横向溢出和 console error 均正常；QA subagent 最终复审“无问题”。
+- 已完成设置页数据库存储路径修改：新增数据库位置配置文件读取、迁移命令、目录选择命令和设置页入口；迁移使用 SQLite `VACUUM INTO` 生成新库，验证后重连，新位置会持久化，旧数据库会移动到新位置 `photoview.sqlite.bak`，原数据库文件路径会清空，目标目录已有 `photoview.sqlite` 或 `.bak` 时拒绝覆盖。
+- 已完成本轮验证：`pnpm test` 12 项通过，`pnpm build` 通过，`cargo test` 29 项通过、1 项忽略，`cargo fmt --check` 通过，`pnpm tauri build --debug --bundles app` 通过；本地 Vite 预览 HTTP 200，dev server 已关闭。Browser 插件本轮无可用 in-app 实例，未能做交互截图。
+- 已完成设置页布局视觉优化：视觉 subagent 初审指出卡片套卡片、数据库迁移按钮层级不清和路径空态问题；已改为“数据库存储 / 数据工具”分区、路径展示行和强调按钮，并补充空态文案。
+- 视觉 subagent 复审：无高/中优先级问题，剩余低风险项不必须修改；已保存截图 `settings-page-redesign.png`、`settings-page-redesign-en.png`、`settings-page-redesign-mobile.png`，桌面/窄屏无 console error、无横向溢出。本轮 `pnpm test` 12 项通过，`pnpm build` 通过，dev server 已关闭。
+- 已移除语言切换成功提示：切换中英文时不再显示 `Language switched to English`，只保留页面文本切换和设置保存逻辑；本轮 `pnpm test` 12 项通过，`pnpm build` 通过。
+- 已将设置页改为上下两段式：偏好设置和数据管理改为纵向堆叠，卡片内部控件自适应分栏；本轮 `pnpm test` 12 项通过，`pnpm build` 通过，Playwright 截图 `settings-page-stacked.png` 无横向溢出，dev server 已关闭。
+- 已将版本同步为 `0.2.1`；发布前验证通过：`pnpm test` 12 项、`pnpm build`、`cargo fmt --check`、`cargo test` 29 项通过 1 项忽略、`cargo test fixture_acceptance_core_flow -- --ignored`、`pnpm tauri build --debug --bundles app`。
 
 ## Blocked
 

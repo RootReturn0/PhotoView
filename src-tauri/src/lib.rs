@@ -17,14 +17,14 @@ use commands::data::{
     enqueue_thumbnail_generation, export_library_data, get_collection, get_image, get_setting,
     get_settings, get_tag, get_task, get_thumbnail, get_thumbnail_cache_stats, get_viewer_image,
     import_folder, list_collection_tag_assignments, list_collections, list_image_tag_assignments,
-    list_images, list_tags, mark_collection_viewed, move_image_file, rebuild_index,
-    rename_image_file, restore_database_from_backup, run_duplicate_detection, search_library,
-    set_collection_tags, set_image_tags, sync_all_collections, sync_collection, update_collection,
-    update_image, update_setting, update_tag,
+    list_images, list_tags, mark_collection_viewed, move_database_storage, move_image_file,
+    rebuild_index, rename_image_file, restore_database_from_backup, run_duplicate_detection,
+    search_library, set_collection_tags, set_image_tags, sync_all_collections, sync_collection,
+    update_collection, update_image, update_setting, update_tag,
 };
 use commands::system::{
-    choose_import_folder, copy_path_to_clipboard, copy_text_to_clipboard, get_app_status,
-    open_path_in_file_manager,
+    choose_database_folder, choose_import_folder, copy_path_to_clipboard, copy_text_to_clipboard,
+    get_app_status, open_path_in_file_manager,
 };
 use std::path::Path;
 use tauri::{
@@ -82,6 +82,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             get_app_status,
             choose_import_folder,
+            choose_database_folder,
             open_path_in_file_manager,
             copy_text_to_clipboard,
             copy_path_to_clipboard,
@@ -118,6 +119,7 @@ pub fn run() {
             update_setting,
             backup_database,
             restore_database_from_backup,
+            move_database_storage,
             rebuild_index,
             export_library_data,
             get_thumbnail,

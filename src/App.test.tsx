@@ -37,6 +37,8 @@ describe("App", () => {
     expect(screen.getByRole("heading", { name: "设置" })).toBeInTheDocument();
     expect(screen.getByLabelText("主题")).toHaveValue("system");
     expect(screen.getByLabelText("缩略图")).toHaveValue(192);
+    expect(screen.getByLabelText("当前数据库路径")).toHaveTextContent("仅桌面应用显示实际路径");
+    expect(screen.getByRole("button", { name: "更改位置" })).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "筛选" }));
     expect(screen.getByLabelText("高级搜索")).toBeInTheDocument();
@@ -54,6 +56,7 @@ describe("App", () => {
       "placeholder",
       "Search collections, paths, or descriptions",
     );
+    expect(screen.queryByText("Language switched to English")).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Settings" }));
     expect(screen.getByRole("heading", { name: "Settings" })).toBeInTheDocument();
@@ -153,15 +156,60 @@ describe("App", () => {
     expect(within(form).getByLabelText("风景")).toBeChecked();
     expect(within(form).getAllByText("风景").length).toBeGreaterThan(1);
   });
+
+  it("moves database storage after the user confirms a new folder", async () => {
+    const user = userEvent.setup();
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    let databasePath = "/tmp/old/photoview.sqlite";
+
+    Reflect.set(window, "__TAURI_INTERNALS__", {});
+    invokeMock.mockImplementation((command) => {
+      if (command === "get_app_status") {
+        return Promise.resolve(mockStatus(0, 0, databasePath));
+      }
+      if (command === "list_collections" || command === "list_tags") {
+        return Promise.resolve([]);
+      }
+      if (command === "list_collection_tag_assignments" || command === "get_settings") {
+        return Promise.resolve([]);
+      }
+      if (command === "choose_database_folder") {
+        return Promise.resolve("/tmp/new");
+      }
+      if (command === "move_database_storage") {
+        databasePath = "/tmp/new/photoview.sqlite";
+        return Promise.resolve({
+          path: databasePath,
+          message: "数据库存储路径已更新",
+        });
+      }
+
+      return Promise.resolve(null);
+    });
+
+    render(<App />);
+
+    await user.click(screen.getByRole("button", { name: "设置" }));
+    expect(await screen.findByText("/tmp/old/photoview.sqlite")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "更改位置" }));
+
+    expect(confirmSpy).toHaveBeenCalledWith(expect.stringContaining("/tmp/new"));
+    expect(invokeMock).toHaveBeenCalledWith("move_database_storage", { directory: "/tmp/new" });
+    expect(await screen.findByText("/tmp/new/photoview.sqlite")).toBeInTheDocument();
+    expect(screen.getByText("数据库路径已更新: /tmp/new/photoview.sqlite")).toBeInTheDocument();
+
+    confirmSpy.mockRestore();
+  });
 });
 
-function mockStatus(collectionCount: number, imageCount: number) {
+function mockStatus(collectionCount: number, imageCount: number, databasePath = "") {
   return {
     product_name: "PhotoView",
     version: "0.1.3",
     paths: {
       app_data_dir: "",
-      database_path: "",
+      database_path: databasePath,
       thumbnails_dir: "",
     },
     schema_version: 1,

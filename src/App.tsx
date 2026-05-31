@@ -372,6 +372,20 @@ const UI_TEXT = {
   thumbnails: { "zh-CN": "缩略图", "en-US": "Thumbnails" },
   savePreferences: { "zh-CN": "保存偏好", "en-US": "Save preferences" },
   dataManagement: { "zh-CN": "数据管理", "en-US": "Data management" },
+  databaseStorage: { "zh-CN": "数据库存储", "en-US": "Database storage" },
+  currentDatabasePath: { "zh-CN": "当前数据库路径", "en-US": "Current database path" },
+  databaseStorageDescription: {
+    "zh-CN": "迁移后立即使用新位置，旧库会移动为 photoview.sqlite.bak。",
+    "en-US":
+      "After moving, PhotoView uses the new location immediately. The old database is moved as photoview.sqlite.bak.",
+  },
+  databasePathDesktopOnly: {
+    "zh-CN": "仅桌面应用显示实际路径",
+    "en-US": "The actual path appears in the desktop app",
+  },
+  dataTools: { "zh-CN": "数据工具", "en-US": "Data tools" },
+  changeDatabasePath: { "zh-CN": "更改位置", "en-US": "Change location" },
+  changingDatabasePath: { "zh-CN": "正在迁移", "en-US": "Moving" },
   backupDatabase: { "zh-CN": "备份数据库", "en-US": "Back up database" },
   restoreDatabase: { "zh-CN": "恢复数据库", "en-US": "Restore database" },
   rebuildIndex: { "zh-CN": "重建索引", "en-US": "Rebuild index" },
@@ -504,7 +518,6 @@ const UI_TEXT = {
     "en-US": "Save settings in the desktop app",
   },
   settingsSaved: { "zh-CN": "设置已保存", "en-US": "Settings saved" },
-  languageSaved: { "zh-CN": "语言已切换为中文", "en-US": "Language switched to English" },
   desktopDataTools: {
     "zh-CN": "请在桌面应用中使用数据工具",
     "en-US": "Use data tools in the desktop app",
@@ -517,6 +530,15 @@ const UI_TEXT = {
   desktopRestoreDatabase: {
     "zh-CN": "请在桌面应用中恢复数据库",
     "en-US": "Restore the database in the desktop app",
+  },
+  desktopDatabaseStorage: {
+    "zh-CN": "请在桌面应用中修改数据库路径",
+    "en-US": "Change the database path in the desktop app",
+  },
+  databaseMoveConfirm: {
+    "zh-CN": "将数据库迁移到这个文件夹并立即使用新位置？\n{path}\n\n旧库会移动到新文件夹并命名为 photoview.sqlite.bak，原数据库文件路径会清空。",
+    "en-US":
+      "Move the database to this folder and use the new location now?\n{path}\n\nThe old database will move to the new folder as photoview.sqlite.bak, and the original database file path will be cleared.",
   },
   desktopCopyPath: {
     "zh-CN": "请在桌面应用中复制路径",
@@ -649,6 +671,7 @@ const UI_TEXT = {
   },
   backupCreated: { "zh-CN": "数据库备份已创建", "en-US": "Database backup created" },
   databaseRestored: { "zh-CN": "数据库已从备份恢复", "en-US": "Database restored from backup" },
+  databasePathChanged: { "zh-CN": "数据库路径已更新", "en-US": "Database path updated" },
   indexRebuilt: { "zh-CN": "索引已重建", "en-US": "Index rebuilt" },
   libraryExported: { "zh-CN": "图库数据已导出", "en-US": "Library data exported" },
 } as const;
@@ -703,6 +726,7 @@ function App() {
   const [isImporting, setIsImporting] = useState(false);
   const [importProgress, setImportProgress] = useState<ImportFolderProgress | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [isChangingDatabasePath, setIsChangingDatabasePath] = useState(false);
   const [query, setQuery] = useState("");
   const [searchResults, setSearchResults] = useState<SearchResults | null>(null);
   const [isSearching, setIsSearching] = useState(false);
@@ -1462,15 +1486,14 @@ function App() {
 
     setLanguage(nextLanguage);
     setError(null);
+    setNotice(null);
 
     if (!isTauriRuntime()) {
-      setNotice(translateText(nextLanguage, "languageSaved"));
       return;
     }
 
     try {
       await saveSetting("language", nextLanguage);
-      setNotice(translateText(nextLanguage, "languageSaved"));
     } catch (value) {
       setError(invokeErrorMessage(value));
     }
@@ -1521,6 +1544,32 @@ function App() {
       setNotice(t("databaseRestored"));
     } catch (value) {
       setError(invokeErrorMessage(value));
+    }
+  }
+
+  async function changeDatabaseStoragePath() {
+    setError(null);
+    setNotice(null);
+
+    if (!isTauriRuntime()) {
+      setNotice(t("desktopDatabaseStorage"));
+      return;
+    }
+
+    try {
+      const directory = await invoke<string | null>("choose_database_folder");
+      if (!directory || !window.confirm(t("databaseMoveConfirm", { path: directory }))) {
+        return;
+      }
+
+      setIsChangingDatabasePath(true);
+      const result = await invoke<DataFileResult>("move_database_storage", { directory });
+      await refreshAppData();
+      setNotice(`${t("databasePathChanged")}: ${result.path}`);
+    } catch (value) {
+      setError(invokeErrorMessage(value));
+    } finally {
+      setIsChangingDatabasePath(false);
     }
   }
 
@@ -3431,19 +3480,58 @@ function App() {
                     <Info size={18} aria-hidden="true" />
                     <h2>{t("dataManagement")}</h2>
                   </header>
-                  <div className="settings-actions">
-                    <button type="button" onClick={() => void runDataTool("backup_database")}>
-                      {t("backupDatabase")}
-                    </button>
-                    <button type="button" onClick={() => void restoreDatabase()}>
-                      {t("restoreDatabase")}
-                    </button>
-                    <button type="button" onClick={() => void runDataTool("rebuild_index")}>
-                      {t("rebuildIndex")}
-                    </button>
-                    <button type="button" onClick={() => void runDataTool("export_library_data")}>
-                      {t("exportData")}
-                    </button>
+                  <div className="settings-section database-storage">
+                    <div className="settings-section-heading">
+                      <div>
+                        <h3>{t("databaseStorage")}</h3>
+                        <p>{t("databaseStorageDescription")}</p>
+                      </div>
+                    </div>
+                    <div className="database-path-row">
+                      <div>
+                        <span>{t("currentDatabasePath")}</span>
+                        <output
+                          aria-label={t("currentDatabasePath")}
+                          className={`database-path-display ${
+                            status?.paths.database_path ? "" : "empty"
+                          }`}
+                          title={status?.paths.database_path ?? t("databasePathDesktopOnly")}
+                        >
+                          {status?.paths.database_path || t("databasePathDesktopOnly")}
+                        </output>
+                      </div>
+                      <button
+                        className="database-path-action"
+                        type="button"
+                        disabled={
+                          isChangingDatabasePath || isImporting || isSyncing || isDetectingDuplicates
+                        }
+                        onClick={() => void changeDatabaseStoragePath()}
+                      >
+                        {isChangingDatabasePath ? t("changingDatabasePath") : t("changeDatabasePath")}
+                      </button>
+                    </div>
+                  </div>
+                  <div className="settings-section">
+                    <div className="settings-section-heading">
+                      <div>
+                        <h3>{t("dataTools")}</h3>
+                      </div>
+                    </div>
+                    <div className="settings-actions">
+                      <button type="button" onClick={() => void runDataTool("backup_database")}>
+                        {t("backupDatabase")}
+                      </button>
+                      <button type="button" onClick={() => void restoreDatabase()}>
+                        {t("restoreDatabase")}
+                      </button>
+                      <button type="button" onClick={() => void runDataTool("rebuild_index")}>
+                        {t("rebuildIndex")}
+                      </button>
+                      <button type="button" onClick={() => void runDataTool("export_library_data")}>
+                        {t("exportData")}
+                      </button>
+                    </div>
                   </div>
                 </article>
               </section>
