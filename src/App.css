@@ -135,14 +135,11 @@ button {
 }
 
 .brand-mark {
-  display: inline-grid;
   width: 32px;
   height: 32px;
-  place-items: center;
+  flex: 0 0 auto;
+  display: block;
   border-radius: 8px;
-  background: linear-gradient(135deg, #2563eb, #14b8a6);
-  color: #ffffff;
-  font-size: 0.8rem;
 }
 
 .primary-nav,
@@ -1838,7 +1835,6 @@ button {
   .brand-mark {
     width: 28px;
     height: 28px;
-    font-size: 0.74rem;
   }
 
   .primary-nav {

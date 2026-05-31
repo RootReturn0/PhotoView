@@ -1,6 +1,6 @@
 [package]
 name = "photoview"
-version = "2.0.1"
+version = "2.0.2"
 description = "A local image viewer and collection manager"
 authors = ["DreamStronger"]
 edition = "2021"

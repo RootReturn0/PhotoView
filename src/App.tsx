@@ -2535,7 +2535,7 @@ function App() {
     >
       <aside className="sidebar" aria-label={t("navigation")}>
         <div className="brand">
-          <span className="brand-mark">PV</span>
+          <img className="brand-mark" src="/favicon.png" alt="" aria-hidden="true" />
           <span>PhotoView</span>
         </div>
         <nav className="primary-nav">
