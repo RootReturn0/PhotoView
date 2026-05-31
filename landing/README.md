@@ -16,13 +16,13 @@ Chinese page:
 
 - `assets/visual-photoview-scanning-cn.png`
 - `assets/visual-photoview-detail-final.png`
-- `assets/visual-photoview-settings.png`
+- `assets/visual-language-zh-filters.png`
 
 English page:
 
 - `assets/visual-photoview-scanning-en.png`
 - `assets/visual-language-en-filters.png`
-- `assets/visual-language-en-settings.png`
+- `assets/visual-photoview-detail-final.png`
 
 The responsive layout is only for viewing this web page on narrow browsers. PhotoView is presented as a desktop app, and the landing page does not use mobile app screenshots.
 
