@@ -12,6 +12,7 @@ use crate::{
         ThumbnailCacheStatsDto, ThumbnailDto, ThumbnailTaskRequest, UpdateCollectionRequest,
         UpdateImageRequest, UpdateSettingRequest, UpdateTagRequest, ViewerImageDto,
     },
+    paths::display_path,
     scanner::{self, ScanReport},
     thumbs::{
         clear_thumbnail_cache as clear_thumbnail_cache_files, collect_thumbnail_cache_stats,
@@ -480,7 +481,7 @@ pub fn backup_database(state: State<'_, AppState>) -> AppResult<DataFileResult> 
     })?;
 
     Ok(DataFileResult {
-        path: path_string,
+        path: display_path(&path),
         message: "数据库备份已创建".to_string(),
     })
 }
@@ -493,7 +494,7 @@ pub fn restore_database_from_backup(
     let backup_path = Path::new(&path);
     state.restore_database_from_backup(backup_path)?;
     Ok(DataFileResult {
-        path,
+        path: display_path(backup_path),
         message: "数据库已从备份恢复".to_string(),
     })
 }
@@ -505,7 +506,7 @@ pub fn move_database_storage(
 ) -> AppResult<DataFileResult> {
     let path = state.move_database_storage(Path::new(&directory))?;
     Ok(DataFileResult {
-        path: path.display().to_string(),
+        path: display_path(&path),
         message: "数据库存储路径已更新".to_string(),
     })
 }
@@ -554,7 +555,7 @@ pub fn export_library_data(state: State<'_, AppState>) -> AppResult<DataFileResu
     fs::write(&path, bytes)?;
 
     Ok(DataFileResult {
-        path: path.display().to_string(),
+        path: display_path(&path),
         message: "图库数据已导出".to_string(),
     })
 }

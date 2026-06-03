@@ -76,7 +76,7 @@ impl AppPaths {
 
     pub fn persist_database_location(&self) -> AppResult<()> {
         let config = DatabaseLocationConfig {
-            database_path: display_path(&self.database_path),
+            database_path: self.database_path.display().to_string(),
         };
         let bytes = serde_json::to_vec_pretty(&config)
             .map_err(|value| AppError::internal(value.to_string()))?;
@@ -149,6 +149,58 @@ fn read_database_location(app_data_dir: &Path) -> AppResult<Option<PathBuf>> {
     }
 }
 
-fn display_path(path: &Path) -> String {
-    path.display().to_string()
+pub fn display_path(path: &Path) -> String {
+    let value = path.display().to_string();
+    strip_windows_verbatim_prefix(&value)
+}
+
+fn strip_windows_verbatim_prefix(value: &str) -> String {
+    const VERBATIM_PREFIX: &str = r"\\?\";
+    const VERBATIM_UNC_PREFIX: &str = r"\\?\UNC\";
+
+    if let Some(rest) = value.strip_prefix(VERBATIM_UNC_PREFIX) {
+        return format!(r"\\{rest}");
+    }
+
+    if let Some(rest) = value.strip_prefix(VERBATIM_PREFIX) {
+        let bytes = rest.as_bytes();
+        if bytes.len() >= 3
+            && bytes[0].is_ascii_alphabetic()
+            && bytes[1] == b':'
+            && (bytes[2] == b'\\' || bytes[2] == b'/')
+        {
+            return rest.to_string();
+        }
+    }
+
+    value.to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn display_path_hides_windows_verbatim_drive_prefix() {
+        assert_eq!(
+            display_path(Path::new(r"\\?\F:\SoftCache\PhotoView\photoview.sqlite")),
+            r"F:\SoftCache\PhotoView\photoview.sqlite"
+        );
+    }
+
+    #[test]
+    fn display_path_hides_windows_verbatim_unc_prefix() {
+        assert_eq!(
+            display_path(Path::new(r"\\?\UNC\nas\Photos\photoview.sqlite")),
+            r"\\nas\Photos\photoview.sqlite"
+        );
+    }
+
+    #[test]
+    fn display_path_keeps_regular_unc_paths() {
+        assert_eq!(
+            display_path(Path::new(r"\\nas\Photos\photoview.sqlite")),
+            r"\\nas\Photos\photoview.sqlite"
+        );
+    }
 }
