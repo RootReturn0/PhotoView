@@ -154,6 +154,16 @@ pub fn display_path(path: &Path) -> String {
     strip_windows_verbatim_prefix(&value)
 }
 
+pub fn alternate_display_path(path: &Path) -> Option<PathBuf> {
+    let raw = path.display().to_string();
+    let display = strip_windows_verbatim_prefix(&raw);
+    if display == raw {
+        None
+    } else {
+        Some(PathBuf::from(display))
+    }
+}
+
 fn strip_windows_verbatim_prefix(value: &str) -> String {
     const VERBATIM_PREFIX: &str = r"\\?\";
     const VERBATIM_UNC_PREFIX: &str = r"\\?\UNC\";
@@ -202,5 +212,14 @@ mod tests {
             display_path(Path::new(r"\\nas\Photos\photoview.sqlite")),
             r"\\nas\Photos\photoview.sqlite"
         );
+    }
+
+    #[test]
+    fn alternate_display_path_only_returns_verbatim_free_paths() {
+        assert_eq!(
+            alternate_display_path(Path::new(r"\\?\F:\SoftCache\PhotoView\image.webp")),
+            Some(PathBuf::from(r"F:\SoftCache\PhotoView\image.webp"))
+        );
+        assert_eq!(alternate_display_path(Path::new("/tmp/image.webp")), None);
     }
 }

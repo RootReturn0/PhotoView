@@ -49,8 +49,7 @@ pub fn run() {
         .plugin(tauri_plugin_clipboard_manager::init())
         .setup(|app| {
             let state = app::AppState::initialize(app.handle())?;
-            app.asset_protocol_scope()
-                .allow_directory(&state.paths().thumbnails_dir, true)?;
+            allow_asset_directory_variants(app.handle(), &state.paths().thumbnails_dir, true)?;
             let collections = state.with_db(db::repositories::list_collections)?;
             for collection in &collections {
                 let collection_path = Path::new(&collection.path);
@@ -67,12 +66,11 @@ pub fn run() {
                     })? {
                         let image_path = Path::new(&image_path);
                         if image_path.is_file() {
-                            app.asset_protocol_scope().allow_file(image_path)?;
+                            allow_asset_file_variants(app.handle(), image_path)?;
                         }
                     }
                 } else {
-                    app.asset_protocol_scope()
-                        .allow_directory(collection_path, true)?;
+                    allow_asset_directory_variants(app.handle(), collection_path, true)?;
                 }
             }
             app.manage(state);
@@ -131,6 +129,28 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+fn allow_asset_file_variants<R: Runtime>(app: &AppHandle<R>, path: &Path) -> tauri::Result<()> {
+    app.asset_protocol_scope().allow_file(path)?;
+    if let Some(alternate_path) = paths::alternate_display_path(path) {
+        app.asset_protocol_scope().allow_file(&alternate_path)?;
+    }
+    Ok(())
+}
+
+fn allow_asset_directory_variants<R: Runtime>(
+    app: &AppHandle<R>,
+    path: &Path,
+    recursive: bool,
+) -> tauri::Result<()> {
+    app.asset_protocol_scope()
+        .allow_directory(path, recursive)?;
+    if let Some(alternate_path) = paths::alternate_display_path(path) {
+        app.asset_protocol_scope()
+            .allow_directory(&alternate_path, recursive)?;
+    }
+    Ok(())
 }
 
 fn build_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {

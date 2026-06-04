@@ -12,7 +12,7 @@ use crate::{
         ThumbnailCacheStatsDto, ThumbnailDto, ThumbnailTaskRequest, UpdateCollectionRequest,
         UpdateImageRequest, UpdateSettingRequest, UpdateTagRequest, ViewerImageDto,
     },
-    paths::display_path,
+    paths::{alternate_display_path, display_path},
     scanner::{self, ScanReport},
     thumbs::{
         clear_thumbnail_cache as clear_thumbnail_cache_files, collect_thumbnail_cache_stats,
@@ -204,8 +204,7 @@ fn import_folder_blocking(
         if has_nested_collection {
             allow_asset_files(&app, &image_paths)?;
         } else if collection_path.is_dir() {
-            app.asset_protocol_scope()
-                .allow_directory(collection_path, true)?;
+            allow_asset_directory_variants(&app, collection_path, true)?;
         }
         results.push(result);
         processed_count = scanned_dir_count + 1;
@@ -573,8 +572,8 @@ pub fn get_thumbnail(
     if uses_source_thumbnail(&image.path) {
         return Ok(ThumbnailDto {
             image_id: image.id,
-            cache_path: image.path.clone(),
-            url: image.path,
+            cache_path: frontend_asset_path(Path::new(&image.path)),
+            url: frontend_asset_path(Path::new(&image.path)),
             width: optional_dimension_to_u32(image.width),
             height: optional_dimension_to_u32(image.height),
             status: "source".to_string(),
@@ -593,7 +592,7 @@ pub fn get_thumbnail(
     );
     let thumbnail = get_or_create_thumbnail(&request)
         .map_err(|value| AppError::new("thumbnail_error", value.to_string()))?;
-    let cache_path = thumbnail.cache_path.display().to_string();
+    let cache_path = frontend_asset_path(&thumbnail.cache_path);
     state.with_db(|db| {
         repositories::upsert_thumbnail_cache_record(
             db,
@@ -709,7 +708,7 @@ pub fn get_viewer_image(
         max_side.unwrap_or(4096),
     );
     let asset = get_or_create_viewer_image(&request)?;
-    let asset_path = asset.asset_path.display().to_string();
+    let asset_path = frontend_asset_path(&asset.asset_path);
 
     Ok(ViewerImageDto {
         image_id: image.id,
@@ -732,6 +731,10 @@ fn uses_source_thumbnail(path: &str) -> bool {
             .as_deref(),
         Some("avif" | "svg")
     )
+}
+
+fn frontend_asset_path(path: &Path) -> String {
+    display_path(path)
 }
 
 #[derive(Clone, Serialize)]
@@ -960,7 +963,7 @@ fn emit_import_progress(app: &AppHandle, progress: ImportFolderProgress) {
 fn allow_asset_files(app: &AppHandle, image_paths: &[PathBuf]) -> AppResult<()> {
     for image_path in image_paths {
         if image_path.is_file() {
-            app.asset_protocol_scope().allow_file(image_path)?;
+            allow_asset_file_variants(app, image_path)?;
         }
     }
 
@@ -969,8 +972,7 @@ fn allow_asset_files(app: &AppHandle, image_paths: &[PathBuf]) -> AppResult<()> 
 
 fn revoke_asset_files(app: &AppHandle, image_paths: &[String]) -> AppResult<()> {
     for image_path in image_paths {
-        app.asset_protocol_scope()
-            .forbid_file(Path::new(image_path))?;
+        revoke_asset_file_variants(app, Path::new(image_path))?;
     }
 
     Ok(())
@@ -990,13 +992,47 @@ fn revoke_collection_asset_scope(
         .iter()
         .any(|collection| Path::new(&collection.path).starts_with(collection_path))
     {
-        app.asset_protocol_scope()
-            .forbid_directory(collection_path, false)?;
+        revoke_asset_directory_variants(app, collection_path, false)?;
         return Ok(());
     }
 
+    revoke_asset_directory_variants(app, collection_path, true)?;
+    Ok(())
+}
+
+fn allow_asset_file_variants(app: &AppHandle, path: &Path) -> AppResult<()> {
+    app.asset_protocol_scope().allow_file(path)?;
+    if let Some(alternate_path) = alternate_display_path(path) {
+        app.asset_protocol_scope().allow_file(&alternate_path)?;
+    }
+    Ok(())
+}
+
+fn allow_asset_directory_variants(app: &AppHandle, path: &Path, recursive: bool) -> AppResult<()> {
     app.asset_protocol_scope()
-        .forbid_directory(collection_path, true)?;
+        .allow_directory(path, recursive)?;
+    if let Some(alternate_path) = alternate_display_path(path) {
+        app.asset_protocol_scope()
+            .allow_directory(&alternate_path, recursive)?;
+    }
+    Ok(())
+}
+
+fn revoke_asset_file_variants(app: &AppHandle, path: &Path) -> AppResult<()> {
+    app.asset_protocol_scope().forbid_file(path)?;
+    if let Some(alternate_path) = alternate_display_path(path) {
+        app.asset_protocol_scope().forbid_file(&alternate_path)?;
+    }
+    Ok(())
+}
+
+fn revoke_asset_directory_variants(app: &AppHandle, path: &Path, recursive: bool) -> AppResult<()> {
+    app.asset_protocol_scope()
+        .forbid_directory(path, recursive)?;
+    if let Some(alternate_path) = alternate_display_path(path) {
+        app.asset_protocol_scope()
+            .forbid_directory(&alternate_path, recursive)?;
+    }
     Ok(())
 }
 
@@ -1008,6 +1044,27 @@ fn optional_dimension_to_u32(value: Option<i64>) -> u32 {
 
 fn file_timestamp() -> String {
     Utc::now().format("%Y%m%d-%H%M%S").to_string()
+}
+
+#[cfg(test)]
+mod path_tests {
+    use super::*;
+
+    #[test]
+    fn frontend_asset_path_hides_windows_verbatim_prefix() {
+        assert_eq!(
+            frontend_asset_path(Path::new(r"\\?\F:\SoftCache\PhotoView\animated.webp")),
+            r"F:\SoftCache\PhotoView\animated.webp"
+        );
+    }
+
+    #[test]
+    fn frontend_asset_path_keeps_regular_paths() {
+        assert_eq!(
+            frontend_asset_path(Path::new("/tmp/PhotoView/animated.webp")),
+            "/tmp/PhotoView/animated.webp"
+        );
+    }
 }
 
 #[cfg(test)]
