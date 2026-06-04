@@ -1,5 +1,7 @@
 # PhotoView
 
+[![Sponsor PhotoView](https://img.shields.io/badge/Sponsor-PhotoView-ea4aaa?logo=githubsponsors&logoColor=white)](https://github.com/sponsors/RootReturn0)
+
 PhotoView 是一个本地优先的跨平台图片查看器与合集管理工具。它基于 Tauri 2、Rust、SQLite、React 和 TypeScript 构建，图片索引、缩略图、标签、搜索和重复检测都在本机完成，不上传用户图片。
 
 PhotoView is a local-first, cross-platform image viewer and collection manager. It is built with Tauri 2, Rust, SQLite, React, and TypeScript. Image indexing, thumbnails, tags, search, and duplicate detection all run locally without uploading user photos.
