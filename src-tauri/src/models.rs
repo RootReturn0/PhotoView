@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 pub struct CollectionDto {
     pub id: String,
     pub path: String,
+    pub display_path: String,
     pub name: String,
     pub cover_image_id: Option<String>,
     pub description: String,
@@ -84,6 +85,7 @@ pub struct ImageDto {
     pub id: String,
     pub collection_id: String,
     pub path: String,
+    pub display_path: String,
     pub file_name: String,
     pub extension: String,
     pub format: String,

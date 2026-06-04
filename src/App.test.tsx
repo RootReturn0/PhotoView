@@ -159,6 +159,85 @@ describe("App", () => {
     expect(within(form).getAllByText("风景").length).toBeGreaterThan(1);
   });
 
+  it("uses display paths for Windows verbatim collection and image paths", async () => {
+    const user = userEvent.setup();
+    const rawCollectionPath = String.raw`\\?\H:\Pictures\壁纸`;
+    const displayCollectionPath = String.raw`H:\Pictures\壁纸`;
+    const rawImagePath = String.raw`\\?\H:\Pictures\壁纸\07fba4bc.jpg`;
+    const displayImagePath = String.raw`H:\Pictures\壁纸\07fba4bc.jpg`;
+    const collection = mockCollection({
+      path: rawCollectionPath,
+      displayPath: displayCollectionPath,
+      name: "壁纸",
+      imageCount: 1,
+    });
+
+    Reflect.set(window, "__TAURI_INTERNALS__", {});
+    invokeMock.mockImplementation((command) => {
+      if (command === "get_app_status") {
+        return Promise.resolve(mockStatus(1, 1));
+      }
+      if (command === "list_collections") {
+        return Promise.resolve([collection]);
+      }
+      if (command === "mark_collection_viewed") {
+        return Promise.resolve(collection);
+      }
+      if (command === "list_images") {
+        return Promise.resolve([
+          mockImage({
+            collectionId: collection.id,
+            path: rawImagePath,
+            displayPath: displayImagePath,
+          }),
+        ]);
+      }
+      if (command === "search_library") {
+        return Promise.resolve({
+          collections: [],
+          images: [
+            mockImage({
+              collectionId: collection.id,
+              path: rawImagePath,
+              displayPath: displayImagePath,
+            }),
+          ],
+          tags: [],
+        });
+      }
+      if (
+        command === "list_tags" ||
+        command === "list_collection_tag_assignments" ||
+        command === "list_image_tag_assignments" ||
+        command === "get_settings"
+      ) {
+        return Promise.resolve([]);
+      }
+      if (command === "get_thumbnail") {
+        return Promise.resolve({
+          imageId: "image-1",
+          cachePath: displayImagePath,
+          url: displayImagePath,
+          width: 100,
+          height: 100,
+          status: "ready",
+        });
+      }
+
+      return Promise.resolve(null);
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText(displayCollectionPath)).toBeInTheDocument();
+    expect(screen.queryByText(rawCollectionPath)).not.toBeInTheDocument();
+
+    await user.type(screen.getByRole("textbox", { name: "搜索" }), "07fba{Enter}");
+
+    expect(await screen.findByText(displayImagePath)).toBeInTheDocument();
+    expect(screen.queryByText(rawImagePath)).not.toBeInTheDocument();
+  });
+
   it("moves database storage after the user confirms a new folder", async () => {
     const user = userEvent.setup();
     const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
@@ -222,7 +301,7 @@ function mockStatus(collectionCount: number, imageCount: number, databasePath = 
   };
 }
 
-function mockCollection() {
+function mockCollection(overrides: Record<string, unknown> = {}) {
   return {
     id: "collection-1",
     path: "/tmp/photos",
@@ -238,6 +317,26 @@ function mockCollection() {
     updatedAt: "2026-05-27T00:00:00Z",
     lastViewedAt: null,
     viewCount: 0,
+    ...overrides,
+  };
+}
+
+function mockImage(overrides: Record<string, unknown> = {}) {
+  return {
+    id: "image-1",
+    collectionId: "collection-1",
+    path: "/tmp/photos/a.jpg",
+    fileName: "07fba4bc.jpg",
+    extension: "jpg",
+    format: "jpeg",
+    sizeBytes: 42,
+    width: 100,
+    height: 100,
+    importedAt: "2026-05-27T00:00:00Z",
+    rating: 0,
+    isFavorite: false,
+    isMissing: false,
+    ...overrides,
   };
 }
 

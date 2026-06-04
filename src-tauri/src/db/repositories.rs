@@ -8,6 +8,7 @@ use crate::{
         SetTagAssignmentsRequest, SettingDto, TagAssignmentDto, TagDto, TaskDto,
         UpdateCollectionRequest, UpdateImageRequest, UpdateSettingRequest, UpdateTagRequest,
     },
+    paths::display_path,
     scanner::{self, ScanCandidate},
 };
 use chrono::{DateTime, Utc};
@@ -1779,9 +1780,11 @@ fn ensure_affected(affected: usize, message: &str) -> AppResult<()> {
 }
 
 fn collection_from_row(row: &Row<'_>) -> rusqlite::Result<CollectionDto> {
+    let path: String = row.get("path")?;
     Ok(CollectionDto {
         id: row.get("id")?,
-        path: row.get("path")?,
+        display_path: display_path(Path::new(&path)),
+        path,
         name: row.get("name")?,
         cover_image_id: row.get("cover_image_id")?,
         description: row.get("description")?,
@@ -1798,10 +1801,12 @@ fn collection_from_row(row: &Row<'_>) -> rusqlite::Result<CollectionDto> {
 }
 
 fn image_from_row(row: &Row<'_>) -> rusqlite::Result<ImageDto> {
+    let path: String = row.get("path")?;
     Ok(ImageDto {
         id: row.get("id")?,
         collection_id: row.get("collection_id")?,
-        path: row.get("path")?,
+        display_path: display_path(Path::new(&path)),
+        path,
         file_name: row.get("file_name")?,
         extension: row.get("extension")?,
         format: row.get("format")?,
@@ -2223,6 +2228,47 @@ mod tests {
             .unwrap(),
             0
         );
+
+        drop(conn);
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn dto_display_paths_hide_windows_verbatim_prefix() {
+        let (path, conn) = temp_database();
+
+        let collection = create_collection(
+            &conn,
+            CreateCollectionRequest {
+                path: r"\\?\H:\Pictures\壁纸".to_string(),
+                name: Some("壁纸".to_string()),
+                description: None,
+                rating: None,
+            },
+        )
+        .expect("collection should be created");
+        assert_eq!(collection.path, r"\\?\H:\Pictures\壁纸");
+        assert_eq!(collection.display_path, r"H:\Pictures\壁纸");
+
+        let image = create_image(
+            &conn,
+            CreateImageRequest {
+                collection_id: collection.id,
+                path: r"\\?\H:\Pictures\壁纸\animated.webp".to_string(),
+                file_name: Some("animated.webp".to_string()),
+                extension: Some("webp".to_string()),
+                format: Some("webp".to_string()),
+                size_bytes: Some(42),
+                width: Some(640),
+                height: Some(480),
+                created_at: None,
+                modified_at: None,
+                sha256: None,
+            },
+        )
+        .expect("image should be created");
+        assert_eq!(image.path, r"\\?\H:\Pictures\壁纸\animated.webp");
+        assert_eq!(image.display_path, r"H:\Pictures\壁纸\animated.webp");
 
         drop(conn);
         let _ = fs::remove_file(path);

@@ -107,6 +107,7 @@ type ImportFolderProgress = {
 type Collection = {
   id: string;
   path: string;
+  displayPath?: string;
   name: string;
   coverImageId: string | null;
   description: string;
@@ -135,6 +136,7 @@ type ImageRecord = {
   id: string;
   collectionId: string;
   path: string;
+  displayPath?: string;
   fileName: string;
   extension: string;
   format: string;
@@ -862,7 +864,7 @@ function App() {
     });
     const textFiltered = normalizedQuery
       ? navFiltered.filter((collection) =>
-          [collection.name, collection.path, collection.description]
+          [collection.name, displayCollectionPath(collection), collection.description]
             .join(" ")
             .toLocaleLowerCase()
             .includes(normalizedQuery),
@@ -2952,7 +2954,7 @@ function App() {
                   items={searchResults.collections.map((collection) => ({
                     id: collection.id,
                     title: collection.name,
-                    meta: collection.path,
+                    meta: displayCollectionPath(collection),
                     onClick: () => openSearchCollection(collection),
                   }))}
                 />
@@ -2962,7 +2964,7 @@ function App() {
                   items={searchResults.images.map((image) => ({
                     id: image.id,
                     title: image.fileName,
-                    meta: image.path,
+                    meta: displayImagePath(image),
                     onClick: () => openSearchImage(image),
                   }))}
                 />
@@ -3088,7 +3090,7 @@ function App() {
               </div>
 
               <div className="detail-meta">
-                <span>{selectedCollection.path}</span>
+                <span>{displayCollectionPath(selectedCollection)}</span>
                 <button
                   aria-label={t("openLocation")}
                   className="icon-button"
@@ -3278,7 +3280,7 @@ function App() {
                           </div>
                           <div className="image-row-main">
                             <h2>{image.fileName}</h2>
-                            <p>{image.path}</p>
+                            <p>{displayImagePath(image)}</p>
                             {(imageTagMap[image.id] ?? []).length > 0 ? (
                               <div className="tag-chip-row" aria-label={t("imageTags")}>
                                 {(imageTagMap[image.id] ?? []).map((tag) => (
@@ -3771,7 +3773,7 @@ function App() {
                             <h2>{collection.name}</h2>
                             {collection.isFavorite ? <Star size={15} aria-label={t("favorited")} /> : null}
                           </div>
-                          <p>{collection.path}</p>
+                          <p>{displayCollectionPath(collection)}</p>
                           {(collectionTagMap[collection.id] ?? []).length > 0 ? (
                             <div className="tag-chip-row" aria-label={t("collectionTags")}>
                               {(collectionTagMap[collection.id] ?? []).map((tag) => (
@@ -4355,7 +4357,7 @@ function App() {
                   </div>
                   <div>
                     <dt>{t("path")}</dt>
-                    <dd title={activeImage.path}>{activeImage.path}</dd>
+                    <dd title={displayImagePath(activeImage)}>{displayImagePath(activeImage)}</dd>
                   </div>
                 </dl>
               </aside>
@@ -4597,6 +4599,14 @@ function groupTagAssignments(assignments: TagAssignment[]): Record<string, Photo
     groups[assignment.targetId] = [...(groups[assignment.targetId] ?? []), assignment.tag];
     return groups;
   }, {});
+}
+
+function displayCollectionPath(collection: Collection): string {
+  return collection.displayPath ?? collection.path;
+}
+
+function displayImagePath(image: ImageRecord): string {
+  return image.displayPath ?? image.path;
 }
 
 function removeDuplicateImages(

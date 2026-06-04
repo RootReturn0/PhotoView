@@ -229,7 +229,7 @@ fn import_folder_blocking(
     let error_count = results.iter().map(|result| result.error_count).sum();
 
     let result = ImportFolderResult {
-        root_path: root.display().to_string(),
+        root_path: display_path(&root),
         collection_count,
         scanned_count,
         inserted_count,
@@ -928,12 +928,12 @@ fn import_progress(
     let (collection_count, scanned_count, inserted_count, updated_count, error_count) =
         summarize_import_results(results);
     ImportFolderProgress {
-        root_path: root.display().to_string(),
-        current_path: current.display().to_string(),
+        root_path: display_path(root),
+        current_path: display_path(current),
         current_name: current
             .file_name()
             .map(|value| value.to_string_lossy().into_owned())
-            .unwrap_or_else(|| current.display().to_string()),
+            .unwrap_or_else(|| display_path(current)),
         phase: phase.to_string(),
         processed_count,
         total_count,
