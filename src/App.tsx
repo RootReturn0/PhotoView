@@ -789,6 +789,7 @@ function App() {
   const [isSlideshowActive, setIsSlideshowActive] = useState(false);
   const [isInfoPanelOpen, setIsInfoPanelOpen] = useState(true);
   const importInFlight = useRef(false);
+  const importProgressHideTimer = useRef<ReturnType<typeof window.setTimeout> | null>(null);
   const thumbnailRequests = useRef(new Set<string>());
   const collectionCoverRequests = useRef(new Set<string>());
   const viewerAssetRequest = useRef(0);
@@ -798,6 +799,23 @@ function App() {
   const appLanguage = normalizeLanguage(language);
   const t = useMemo(() => createTranslator(appLanguage), [appLanguage]);
   const alternateLanguage: AppLanguage = appLanguage === "zh-CN" ? "en-US" : "zh-CN";
+
+  function clearImportProgressHideTimer() {
+    if (importProgressHideTimer.current === null) {
+      return;
+    }
+
+    window.clearTimeout(importProgressHideTimer.current);
+    importProgressHideTimer.current = null;
+  }
+
+  function hideImportProgressSoon() {
+    clearImportProgressHideTimer();
+    importProgressHideTimer.current = window.setTimeout(() => {
+      setImportProgress(null);
+      importProgressHideTimer.current = null;
+    }, 1200);
+  }
 
   const selectedCollection = useMemo(
     () => collections.find((collection) => collection.id === selectedCollectionId) ?? null,
@@ -905,6 +923,10 @@ function App() {
 
   useEffect(() => {
     void refreshAppData();
+  }, []);
+
+  useEffect(() => {
+    return () => clearImportProgressHideTimer();
   }, []);
 
   useEffect(() => {
@@ -1055,9 +1077,11 @@ function App() {
             errors: progress.errorCount,
           }),
         );
+        hideImportProgressSoon();
         return;
       }
 
+      clearImportProgressHideTimer();
       const action =
         progress.phase === "imported"
           ? t("imported")
@@ -1372,6 +1396,7 @@ function App() {
     importInFlight.current = true;
     setError(null);
     setNotice(null);
+    clearImportProgressHideTimer();
     setImportProgress(null);
     setIsImporting(true);
 
@@ -1406,6 +1431,7 @@ function App() {
           errors: result.errorCount,
         }),
       );
+      hideImportProgressSoon();
       await refreshAppData();
       setActiveView("all");
       setSelectedCollectionId(

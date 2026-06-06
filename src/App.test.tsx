@@ -1,7 +1,8 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import App from "./App";
 
 vi.mock("@tauri-apps/api/core", () => ({
@@ -14,10 +15,14 @@ vi.mock("@tauri-apps/api/event", () => ({
 }));
 
 const invokeMock = vi.mocked(invoke);
+const listenMock = vi.mocked(listen);
 
 afterEach(() => {
   Reflect.deleteProperty(window, "__TAURI_INTERNALS__");
   invokeMock.mockReset();
+  listenMock.mockReset();
+  listenMock.mockImplementation(() => Promise.resolve(() => undefined));
+  vi.useRealTimers();
 });
 
 describe("App", () => {
@@ -236,6 +241,65 @@ describe("App", () => {
 
     expect(await screen.findByText(displayImagePath)).toBeInTheDocument();
     expect(screen.queryByText(rawImagePath)).not.toBeInTheDocument();
+  });
+
+  it("hides import progress after a completed progress event", async () => {
+    Reflect.set(window, "__TAURI_INTERNALS__", {});
+    invokeMock.mockImplementation((command) => {
+      if (command === "get_app_status") {
+        return Promise.resolve(mockStatus(0, 0));
+      }
+      if (
+        command === "list_collections" ||
+        command === "list_tags" ||
+        command === "list_collection_tag_assignments" ||
+        command === "get_settings"
+      ) {
+        return Promise.resolve([]);
+      }
+
+      return Promise.resolve(null);
+    });
+
+    render(<App />);
+    await act(async () => undefined);
+
+    const progressListener = listenMock.mock.calls.find(
+      ([eventName]) => eventName === "import-folder-progress",
+    )?.[1];
+    expect(progressListener).toBeTypeOf("function");
+
+    vi.useFakeTimers();
+    act(() => {
+      progressListener?.({
+        event: "import-folder-progress",
+        id: 1,
+        payload: {
+          phase: "completed",
+          currentPath: "/tmp/photos",
+          currentName: "photos",
+          processedCount: 1,
+          totalCount: 1,
+          collectionCount: 1,
+          scannedCount: 3,
+          insertedCount: 3,
+          updatedCount: 0,
+          missingCount: 0,
+          errorCount: 0,
+          skippedCount: 0,
+        },
+      });
+    });
+
+    expect(screen.getByLabelText("导入进度")).toBeInTheDocument();
+    expect(screen.getByText("导入完成")).toBeInTheDocument();
+
+    act(() => {
+      vi.advanceTimersByTime(1200);
+    });
+
+    expect(screen.queryByLabelText("导入进度")).not.toBeInTheDocument();
+    expect(screen.getByText("导入 1 个合集：扫描 3 张，新增 3 张，更新 0 张，错误 0 个")).toBeInTheDocument();
   });
 
   it("moves database storage after the user confirms a new folder", async () => {
