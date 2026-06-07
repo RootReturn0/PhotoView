@@ -80,6 +80,11 @@ button {
 
 .app-shell[data-theme="dark"] .tag-editor-panel input,
 .app-shell[data-theme="dark"] .database-path-display,
+.app-shell[data-theme="dark"] .selection-controls button,
+.app-shell[data-theme="dark"] .batch-toolbar,
+.app-shell[data-theme="dark"] .batch-toolbar button,
+.app-shell[data-theme="dark"] .tag-mode-control,
+.app-shell[data-theme="dark"] .tag-mode-control button,
 .app-shell[data-theme="dark"] .tag-assignment-trigger,
 .app-shell[data-theme="dark"] .tag-assignment-preview,
 .app-shell[data-theme="dark"] .tag-assignment-menu,
@@ -93,6 +98,9 @@ button {
 }
 
 .app-shell[data-theme="dark"] .tag-assignment-menu label:hover,
+.app-shell[data-theme="dark"] .selection-controls button:hover:not(:disabled),
+.app-shell[data-theme="dark"] .batch-toolbar button:hover,
+.app-shell[data-theme="dark"] .tag-mode-control button.active,
 .app-shell[data-theme="dark"] .language-segmented button:hover,
 .app-shell[data-theme="dark"] .language-segmented button.active,
 .app-shell[data-theme="dark"] .image-tile[role="button"]:hover,
@@ -104,6 +112,7 @@ button {
 .app-shell[data-theme="dark"] .settings-section h3,
 .app-shell[data-theme="dark"] .database-path-row span,
 .app-shell[data-theme="dark"] .settings-grid .setting-field,
+.app-shell[data-theme="dark"] .batch-toolbar strong,
 .app-shell[data-theme="dark"] .language-segmented button,
 .app-shell[data-theme="dark"] .tag-assignment-field,
 .app-shell[data-theme="dark"] .image-tile strong {
@@ -112,6 +121,21 @@ button {
 
 .app-shell[data-theme="dark"] .language-segmented button + button {
   border-left-color: #405164;
+}
+
+.app-shell[data-theme="dark"] .tag-mode-control button {
+  border-right-color: #405164;
+}
+
+.app-shell[data-theme="dark"] .batch-toolbar button.danger {
+  border-color: #7f2d2d;
+  background: #351c20;
+  color: #ffb4ab;
+}
+
+.app-shell[data-theme="dark"] .batch-toolbar button.danger:hover {
+  border-color: #b65f5f;
+  background: #482428;
 }
 
 .app-shell[data-theme="dark"] .tag-assignment-preview small {
@@ -852,6 +876,38 @@ button {
 
 .detail-filter-controls {
   justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
+.selection-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.selection-controls button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 1px solid #cfd7e2;
+  border-radius: 7px;
+  background: #ffffff;
+  color: #2f3a46;
+  min-height: 36px;
+  padding: 6px 10px;
+  white-space: nowrap;
+}
+
+.selection-controls button:hover:not(:disabled) {
+  border-color: #9cabc0;
+  background: #f3f7fb;
+}
+
+.selection-controls button:disabled {
+  cursor: default;
+  opacity: 0.55;
 }
 
 .segmented-control {
@@ -1253,17 +1309,27 @@ button {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
+  justify-content: space-between;
+  gap: 10px;
   border: 1px solid #c9d7e6;
   border-radius: 8px;
   background: #f7fbff;
   padding: 9px 10px;
 }
 
-.batch-toolbar span:first-child {
+.batch-toolbar strong {
   color: #31506f;
   font-size: 0.86rem;
   font-weight: 600;
+  white-space: nowrap;
+}
+
+.batch-toolbar-actions {
+  display: flex;
+  flex: 1 1 520px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
 .batch-toolbar button {
@@ -1670,6 +1736,33 @@ button {
 .tag-assignment-modal h2 {
   margin: 0;
   font-size: 1.1rem;
+}
+
+.tag-mode-control {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  border: 1px solid #cfd7e2;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.tag-mode-control button {
+  border: 0;
+  border-right: 1px solid #cfd7e2;
+  background: #ffffff;
+  color: #526173;
+  min-height: 36px;
+  padding: 7px 10px;
+}
+
+.tag-mode-control button:last-child {
+  border-right: 0;
+}
+
+.tag-mode-control button.active {
+  background: #eef5ff;
+  color: var(--accent);
+  font-weight: 700;
 }
 
 .collection-editor label,
@@ -2207,6 +2300,17 @@ button {
     width: 100%;
   }
 
+  .selection-controls {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    width: 100%;
+  }
+
+  .selection-controls button {
+    min-width: 0;
+    white-space: normal;
+  }
+
   .tag-editor-panel {
     grid-template-columns: minmax(0, 1fr) auto;
   }
@@ -2223,6 +2327,10 @@ button {
 
   .batch-toolbar {
     align-items: stretch;
+  }
+
+  .batch-toolbar-actions {
+    justify-content: flex-start;
   }
 
   .batch-toolbar button {

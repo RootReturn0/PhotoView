@@ -231,6 +231,8 @@ type TagAssignmentTarget =
   | { kind: "image"; image: ImageRecord }
   | { kind: "batch"; images: ImageRecord[] };
 
+type TagAssignmentMode = "replace" | "add" | "remove";
+
 const SEARCH_FORMATS = ["jpg", "png", "gif", "webp", "avif", "svg", "bmp", "tiff", "ico"];
 const COLLECTION_BATCH_SIZE = 80;
 const DEFAULT_LANGUAGE: AppLanguage = "zh-CN";
@@ -293,6 +295,8 @@ const UI_TEXT = {
   startDate: { "zh-CN": "开始日期", "en-US": "Start date" },
   endDate: { "zh-CN": "结束日期", "en-US": "End date" },
   favorite: { "zh-CN": "收藏", "en-US": "Favorite" },
+  favoriteImages: { "zh-CN": "收藏", "en-US": "Favorite" },
+  unfavoriteImages: { "zh-CN": "取消收藏", "en-US": "Unfavorite" },
   favoriteState: { "zh-CN": "收藏状态", "en-US": "Favorite status" },
   any: { "zh-CN": "不限", "en-US": "Any" },
   favorited: { "zh-CN": "已收藏", "en-US": "Favorited" },
@@ -334,10 +338,15 @@ const UI_TEXT = {
   listView: { "zh-CN": "列表视图", "en-US": "List view" },
   gridView: { "zh-CN": "网格视图", "en-US": "Grid view" },
   collectionTags: { "zh-CN": "合集标签", "en-US": "Collection tags" },
+  imageSelectionActions: { "zh-CN": "图片选择操作", "en-US": "Image selection actions" },
+  selectVisibleImages: { "zh-CN": "选择当前筛选", "en-US": "Select visible" },
+  clearVisibleSelection: { "zh-CN": "取消当前选择", "en-US": "Clear visible" },
+  clearSelection: { "zh-CN": "清空选择", "en-US": "Clear selection" },
   batchImageActions: { "zh-CN": "批量图片操作", "en-US": "Batch image actions" },
   selectedImageCount: { "zh-CN": "已选 {count} 张", "en-US": "{count} selected" },
   move: { "zh-CN": "移动", "en-US": "Move" },
   copy: { "zh-CN": "复制", "en-US": "Copy" },
+  copyPaths: { "zh-CN": "复制路径", "en-US": "Copy paths" },
   tag: { "zh-CN": "标签", "en-US": "Tags" },
   delete: { "zh-CN": "删除", "en-US": "Delete" },
   clear: { "zh-CN": "清空", "en-US": "Clear" },
@@ -454,6 +463,10 @@ const UI_TEXT = {
   save: { "zh-CN": "保存", "en-US": "Save" },
   setTags: { "zh-CN": "设置标签", "en-US": "Set tags" },
   closeTagSettings: { "zh-CN": "关闭标签设置", "en-US": "Close tag settings" },
+  tagAssignmentMode: { "zh-CN": "标签操作", "en-US": "Tag action" },
+  replaceTags: { "zh-CN": "替换", "en-US": "Replace" },
+  addTags: { "zh-CN": "添加", "en-US": "Add" },
+  removeTags: { "zh-CN": "移除", "en-US": "Remove" },
   tagOptions: { "zh-CN": "标签选项", "en-US": "Tag options" },
   selectedTags: { "zh-CN": "已选标签", "en-US": "Selected tags" },
   selectedTagsCount: { "zh-CN": "已选择 {count} 个标签", "en-US": "{count} tags selected" },
@@ -614,6 +627,18 @@ const UI_TEXT = {
     "zh-CN": "已设置 {count} 张图片的标签",
     "en-US": "Updated tags for {count} images",
   },
+  batchTagsAdded: {
+    "zh-CN": "已为 {count} 张图片添加标签",
+    "en-US": "Added tags to {count} images",
+  },
+  batchTagsRemoved: {
+    "zh-CN": "已从 {count} 张图片移除标签",
+    "en-US": "Removed tags from {count} images",
+  },
+  selectTagsForBatch: {
+    "zh-CN": "请先选择要添加或移除的标签",
+    "en-US": "Select tags to add or remove first",
+  },
   newFileNamePrompt: { "zh-CN": "新的文件名", "en-US": "New file name" },
   desktopRenameImage: {
     "zh-CN": "请在桌面应用中重命名图片",
@@ -665,6 +690,18 @@ const UI_TEXT = {
   ratedImagesNotice: {
     "zh-CN": "已评分 {count} 张图片",
     "en-US": "Rated {count} images",
+  },
+  desktopBatchFavorite: {
+    "zh-CN": "请在桌面应用中批量收藏图片",
+    "en-US": "Batch favorite images in the desktop app",
+  },
+  batchFavoriteUpdated: {
+    "zh-CN": "已更新 {count} 张图片的收藏状态",
+    "en-US": "Updated favorite state for {count} images",
+  },
+  copiedImagePathsNotice: {
+    "zh-CN": "已复制 {count} 张图片路径",
+    "en-US": "Copied {count} image paths",
   },
   deleteCollectionConfirm: {
     "zh-CN": "删除合集记录“{name}”？磁盘文件夹不会被删除。",
@@ -777,6 +814,7 @@ function App() {
   const [editingTagId, setEditingTagId] = useState<string | null>(null);
   const [isTagSaving, setIsTagSaving] = useState(false);
   const [tagAssignmentTarget, setTagAssignmentTarget] = useState<TagAssignmentTarget | null>(null);
+  const [tagAssignmentMode, setTagAssignmentMode] = useState<TagAssignmentMode>("replace");
   const [tagAssignmentIds, setTagAssignmentIds] = useState<string[]>([]);
   const [isTagAssignmentMenuOpen, setIsTagAssignmentMenuOpen] = useState(false);
   const [isTagAssignmentSaving, setIsTagAssignmentSaving] = useState(false);
@@ -848,6 +886,12 @@ function App() {
     () => images.filter((image) => selectedImageIds.has(image.id)),
     [images, selectedImageIds],
   );
+  const selectedVisibleImageCount = useMemo(
+    () => visibleImages.filter((image) => selectedImageIds.has(image.id)).length,
+    [selectedImageIds, visibleImages],
+  );
+  const allVisibleImagesSelected =
+    visibleImages.length > 0 && selectedVisibleImageCount === visibleImages.length;
   const contextImage = imageContextMenu
     ? images.find((image) => image.id === imageContextMenu.imageId) ?? null
     : null;
@@ -2065,7 +2109,8 @@ function App() {
     }
 
     setTagAssignmentTarget(target);
-    setTagAssignmentIds(currentTags.map((tag) => tag.id));
+    setTagAssignmentMode(target.kind === "batch" ? "add" : "replace");
+    setTagAssignmentIds(target.kind === "batch" ? [] : currentTags.map((tag) => tag.id));
     setIsTagAssignmentMenuOpen(false);
     setError(null);
     setNotice(null);
@@ -2091,6 +2136,16 @@ function App() {
     setError(null);
     setNotice(null);
     setIsTagAssignmentSaving(true);
+
+    if (
+      tagAssignmentTarget.kind === "batch" &&
+      tagAssignmentMode !== "replace" &&
+      tagAssignmentIds.length === 0
+    ) {
+      setError(t("selectTagsForBatch"));
+      setIsTagAssignmentSaving(false);
+      return;
+    }
 
     if (!isTauriRuntime()) {
       setNotice(t("desktopSetTags"));
@@ -2122,8 +2177,14 @@ function App() {
         let updatedCount = 0;
         for (const image of tagAssignmentTarget.images) {
           try {
+            const currentTagIds = imageTagMap[image.id]?.map((tag) => tag.id) ?? [];
+            const nextTagIds = mergeImageTagIds(
+              currentTagIds,
+              tagAssignmentIds,
+              tagAssignmentMode,
+            );
             const assignedTags = await invoke<PhotoTag[]>("set_image_tags", {
-              request: { targetId: image.id, tagIds: tagAssignmentIds },
+              request: { targetId: image.id, tagIds: nextTagIds },
             });
             setImageTagMap((current) => ({ ...current, [image.id]: assignedTags }));
             updatedCount += 1;
@@ -2132,11 +2193,18 @@ function App() {
           }
         }
         clearImageSelection();
-        setNotice(t("batchTagsUpdated", { count: updatedCount }));
+        const noticeKey: TranslationKey =
+          tagAssignmentMode === "add"
+            ? "batchTagsAdded"
+            : tagAssignmentMode === "remove"
+              ? "batchTagsRemoved"
+              : "batchTagsUpdated";
+        setNotice(t(noticeKey, { count: updatedCount }));
         setError(failed.length > 0 ? failed.join("；") : null);
       }
 
       setTagAssignmentTarget(null);
+      setTagAssignmentMode("replace");
       setTagAssignmentIds([]);
       setIsTagAssignmentMenuOpen(false);
     } catch (value) {
@@ -2259,6 +2327,27 @@ function App() {
 
   function clearImageSelection() {
     setSelectedImageIds(new Set());
+  }
+
+  function toggleVisibleImageSelection() {
+    if (visibleImages.length === 0) {
+      return;
+    }
+
+    setSelectedImageIds((current) => {
+      const next = new Set(current);
+      if (allVisibleImagesSelected) {
+        for (const image of visibleImages) {
+          next.delete(image.id);
+        }
+        return next;
+      }
+
+      for (const image of visibleImages) {
+        next.add(image.id);
+      }
+      return next;
+    });
   }
 
   function imageActionGroup(image: ImageRecord): ImageRecord[] {
@@ -2463,6 +2552,63 @@ function App() {
     clearImageSelection();
     setNotice(t("ratedImagesNotice", { count: selectedImages.length - failed.length }));
     setError(failed.length > 0 ? failed.join("；") : null);
+  }
+
+  async function batchSetImageFavorite(isFavorite: boolean) {
+    if (selectedImages.length === 0) {
+      return;
+    }
+
+    if (!isTauriRuntime()) {
+      setNotice(t("desktopBatchFavorite"));
+      return;
+    }
+
+    setError(null);
+    setNotice(null);
+
+    const failed: string[] = [];
+    const updatedImages: ImageRecord[] = [];
+    for (const image of selectedImages) {
+      try {
+        const updated = await invoke<ImageRecord>("update_image", {
+          request: { id: image.id, isFavorite },
+        });
+        updatedImages.push(updated);
+      } catch (value) {
+        failed.push(`${image.fileName}: ${invokeErrorMessage(value)}`);
+      }
+    }
+
+    if (updatedImages.length > 0) {
+      const updatedMap = new Map(updatedImages.map((image) => [image.id, image]));
+      setImages((current) => current.map((image) => updatedMap.get(image.id) ?? image));
+    }
+    clearImageSelection();
+    setNotice(t("batchFavoriteUpdated", { count: updatedImages.length }));
+    setError(failed.length > 0 ? failed.join("；") : null);
+  }
+
+  async function batchCopyImagePaths() {
+    if (selectedImages.length === 0) {
+      return;
+    }
+
+    setError(null);
+    setNotice(null);
+
+    if (!isTauriRuntime()) {
+      setNotice(t("desktopCopyPath"));
+      return;
+    }
+
+    try {
+      const text = selectedImages.map((image) => displayImagePath(image)).join("\n");
+      await invoke("copy_text_to_clipboard", { text });
+      setNotice(t("copiedImagePathsNotice", { count: selectedImages.length }));
+    } catch (value) {
+      setError(invokeErrorMessage(value));
+    }
   }
 
   function handleImageDragStart(event: DragEvent<HTMLElement>, image: ImageRecord) {
@@ -3161,6 +3307,26 @@ function App() {
                     <Grid2X2 size={16} aria-hidden="true" />
                   </button>
                 </div>
+                <div className="selection-controls" aria-label={t("imageSelectionActions")}>
+                  <button
+                    disabled={visibleImages.length === 0}
+                    type="button"
+                    onClick={toggleVisibleImageSelection}
+                  >
+                    <Images size={15} aria-hidden="true" />
+                    <span>
+                      {allVisibleImagesSelected
+                        ? t("clearVisibleSelection")
+                        : t("selectVisibleImages")}
+                    </span>
+                  </button>
+                  {selectedImages.length > 0 ? (
+                    <button type="button" onClick={clearImageSelection}>
+                      <X size={15} aria-hidden="true" />
+                      <span>{t("clearSelection")}</span>
+                    </button>
+                  ) : null}
+                </div>
               </div>
 
               {selectedCollectionTags.length > 0 ? (
@@ -3175,31 +3341,45 @@ function App() {
 
               {selectedImages.length > 0 ? (
                 <div className="batch-toolbar" aria-label={t("batchImageActions")}>
-                  <span>{t("selectedImageCount", { count: selectedImages.length })}</span>
-                  <button type="button" onClick={() => void batchMoveImages()}>
-                    <MoveRight size={15} aria-hidden="true" />
-                    <span>{t("move")}</span>
-                  </button>
-                  <button type="button" onClick={() => void batchCopyImages()}>
-                    <Copy size={15} aria-hidden="true" />
-                    <span>{t("copy")}</span>
-                  </button>
-                  <button type="button" onClick={() => void batchSetImageTags()}>
-                    <TagIcon size={15} aria-hidden="true" />
-                    <span>{t("tag")}</span>
-                  </button>
-                  <button type="button" onClick={() => void batchRateImages()}>
-                    <Star size={15} aria-hidden="true" />
-                    <span>{t("rating")}</span>
-                  </button>
-                  <button className="danger" type="button" onClick={() => void batchDeleteImages()}>
-                    <Trash2 size={15} aria-hidden="true" />
-                    <span>{t("delete")}</span>
-                  </button>
-                  <button type="button" onClick={clearImageSelection}>
-                    <X size={15} aria-hidden="true" />
-                    <span>{t("cancel")}</span>
-                  </button>
+                  <strong>{t("selectedImageCount", { count: selectedImages.length })}</strong>
+                  <div className="batch-toolbar-actions">
+                    <button type="button" onClick={() => void batchMoveImages()}>
+                      <MoveRight size={15} aria-hidden="true" />
+                      <span>{t("move")}</span>
+                    </button>
+                    <button type="button" onClick={() => void batchCopyImages()}>
+                      <Copy size={15} aria-hidden="true" />
+                      <span>{t("copy")}</span>
+                    </button>
+                    <button type="button" onClick={() => void batchCopyImagePaths()}>
+                      <Copy size={15} aria-hidden="true" />
+                      <span>{t("copyPaths")}</span>
+                    </button>
+                    <button type="button" onClick={() => void batchSetImageTags()}>
+                      <TagIcon size={15} aria-hidden="true" />
+                      <span>{t("tag")}</span>
+                    </button>
+                    <button type="button" onClick={() => void batchRateImages()}>
+                      <Star size={15} aria-hidden="true" />
+                      <span>{t("rating")}</span>
+                    </button>
+                    <button type="button" onClick={() => void batchSetImageFavorite(true)}>
+                      <Star size={15} aria-hidden="true" fill="currentColor" />
+                      <span>{t("favoriteImages")}</span>
+                    </button>
+                    <button type="button" onClick={() => void batchSetImageFavorite(false)}>
+                      <Star size={15} aria-hidden="true" />
+                      <span>{t("unfavoriteImages")}</span>
+                    </button>
+                    <button
+                      className="danger"
+                      type="button"
+                      onClick={() => void batchDeleteImages()}
+                    >
+                      <Trash2 size={15} aria-hidden="true" />
+                      <span>{t("delete")}</span>
+                    </button>
+                  </div>
                 </div>
               ) : null}
 
@@ -4172,6 +4352,7 @@ function App() {
                 type="button"
                 onClick={() => {
                   setTagAssignmentTarget(null);
+                  setTagAssignmentMode("replace");
                   setTagAssignmentIds([]);
                   setIsTagAssignmentMenuOpen(false);
                 }}
@@ -4179,6 +4360,28 @@ function App() {
                 <X size={16} aria-hidden="true" />
               </button>
             </header>
+
+            {tagAssignmentTarget.kind === "batch" ? (
+              <div className="tag-mode-control" role="group" aria-label={t("tagAssignmentMode")}>
+                {(
+                  [
+                    ["add", "addTags"],
+                    ["remove", "removeTags"],
+                    ["replace", "replaceTags"],
+                  ] as const
+                ).map(([mode, labelKey]) => (
+                  <button
+                    aria-pressed={tagAssignmentMode === mode}
+                    className={tagAssignmentMode === mode ? "active" : ""}
+                    key={mode}
+                    type="button"
+                    onClick={() => setTagAssignmentMode(mode)}
+                  >
+                    {t(labelKey)}
+                  </button>
+                ))}
+              </div>
+            ) : null}
 
             <div className="tag-assignment-field">
               <span>{t("tagsLabel")}</span>
@@ -4248,6 +4451,7 @@ function App() {
                 type="button"
                 onClick={() => {
                   setTagAssignmentTarget(null);
+                  setTagAssignmentMode("replace");
                   setTagAssignmentIds([]);
                   setIsTagAssignmentMenuOpen(false);
                 }}
@@ -4633,6 +4837,23 @@ function displayCollectionPath(collection: Collection): string {
 
 function displayImagePath(image: ImageRecord): string {
   return image.displayPath ?? image.path;
+}
+
+function mergeImageTagIds(
+  currentTagIds: string[],
+  selectedTagIds: string[],
+  mode: TagAssignmentMode,
+): string[] {
+  if (mode === "replace") {
+    return [...selectedTagIds];
+  }
+
+  if (mode === "remove") {
+    const selected = new Set(selectedTagIds);
+    return currentTagIds.filter((tagId) => !selected.has(tagId));
+  }
+
+  return Array.from(new Set([...currentTagIds, ...selectedTagIds]));
 }
 
 function removeDuplicateImages(

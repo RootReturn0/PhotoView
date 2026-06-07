@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
@@ -302,6 +302,166 @@ describe("App", () => {
     expect(screen.getByText("导入 1 个合集：扫描 3 张，新增 3 张，更新 0 张，错误 0 个")).toBeInTheDocument();
   });
 
+  it("selects visible images for copy paths and batch favorite actions", async () => {
+    const user = userEvent.setup();
+    const collection = mockCollection({ imageCount: 2 });
+    const images = [
+      mockImage({
+        id: "image-1",
+        fileName: "one.jpg",
+        path: "/raw/one.jpg",
+        displayPath: "/display/one.jpg",
+      }),
+      mockImage({
+        id: "image-2",
+        fileName: "two.jpg",
+        path: "/raw/two.jpg",
+        displayPath: "/display/two.jpg",
+      }),
+    ];
+
+    Reflect.set(window, "__TAURI_INTERNALS__", {});
+    invokeMock.mockImplementation((command, args) => {
+      if (command === "get_app_status") {
+        return Promise.resolve(mockStatus(1, 2));
+      }
+      if (command === "list_collections") {
+        return Promise.resolve([collection]);
+      }
+      if (command === "mark_collection_viewed") {
+        return Promise.resolve(collection);
+      }
+      if (command === "list_images") {
+        return Promise.resolve(images);
+      }
+      if (
+        command === "list_tags" ||
+        command === "list_collection_tag_assignments" ||
+        command === "list_image_tag_assignments" ||
+        command === "get_settings"
+      ) {
+        return Promise.resolve([]);
+      }
+      if (command === "get_thumbnail") {
+        return Promise.resolve(null);
+      }
+      if (command === "copy_text_to_clipboard") {
+        return Promise.resolve(null);
+      }
+      if (command === "update_image") {
+        const request = (args as { request: { id: string; isFavorite: boolean } }).request;
+        const image = images.find((item) => item.id === request.id);
+        return Promise.resolve({ ...image, isFavorite: request.isFavorite });
+      }
+
+      return Promise.resolve(null);
+    });
+
+    render(<App />);
+
+    await user.click(await screen.findByText("测试合集"));
+    const selectVisibleButton = screen.getByRole("button", { name: "选择当前筛选" });
+    await waitFor(() => expect(selectVisibleButton).not.toBeDisabled());
+
+    await user.click(selectVisibleButton);
+    const toolbar = screen.getByLabelText("批量图片操作");
+    expect(within(toolbar).getByText("已选 2 张")).toBeInTheDocument();
+
+    await user.click(within(toolbar).getByRole("button", { name: "复制路径" }));
+    expect(invokeMock).toHaveBeenCalledWith("copy_text_to_clipboard", {
+      text: "/display/one.jpg\n/display/two.jpg",
+    });
+
+    await user.click(within(toolbar).getByRole("button", { name: "收藏" }));
+    expect(invokeMock).toHaveBeenCalledWith("update_image", {
+      request: { id: "image-1", isFavorite: true },
+    });
+    expect(invokeMock).toHaveBeenCalledWith("update_image", {
+      request: { id: "image-2", isFavorite: true },
+    });
+    expect(screen.getByText("已更新 2 张图片的收藏状态")).toBeInTheDocument();
+  });
+
+  it("adds batch tags without replacing existing image tags", async () => {
+    const user = userEvent.setup();
+    const collection = mockCollection({ imageCount: 2 });
+    const landscapeTag = mockTag();
+    const portraitTag = mockTag({
+      id: "tag-2",
+      name: "人像",
+      color: "#16a34a",
+    });
+    const images = [
+      mockImage({ id: "image-1", fileName: "one.jpg" }),
+      mockImage({ id: "image-2", fileName: "two.jpg" }),
+    ];
+
+    Reflect.set(window, "__TAURI_INTERNALS__", {});
+    invokeMock.mockImplementation((command, args) => {
+      if (command === "get_app_status") {
+        return Promise.resolve(mockStatus(1, 2));
+      }
+      if (command === "list_collections") {
+        return Promise.resolve([collection]);
+      }
+      if (command === "mark_collection_viewed") {
+        return Promise.resolve(collection);
+      }
+      if (command === "list_images") {
+        return Promise.resolve(images);
+      }
+      if (command === "list_tags") {
+        return Promise.resolve([landscapeTag, portraitTag]);
+      }
+      if (command === "list_collection_tag_assignments" || command === "get_settings") {
+        return Promise.resolve([]);
+      }
+      if (command === "list_image_tag_assignments") {
+        return Promise.resolve([{ targetId: "image-1", tag: landscapeTag }]);
+      }
+      if (command === "get_thumbnail") {
+        return Promise.resolve(null);
+      }
+      if (command === "set_image_tags") {
+        const request = (args as { request: { tagIds: string[] } }).request;
+        return Promise.resolve(
+          request.tagIds
+            .map((id) => [landscapeTag, portraitTag].find((tag) => tag.id === id))
+            .filter(Boolean),
+        );
+      }
+
+      return Promise.resolve(null);
+    });
+
+    render(<App />);
+
+    await user.click(await screen.findByText("测试合集"));
+    const selectVisibleButton = screen.getByRole("button", { name: "选择当前筛选" });
+    await waitFor(() => expect(selectVisibleButton).not.toBeDisabled());
+
+    await user.click(selectVisibleButton);
+    const toolbar = screen.getByLabelText("批量图片操作");
+    await user.click(within(toolbar).getByRole("button", { name: "标签" }));
+
+    const form = screen.getByRole("form", { name: "设置标签" });
+    expect(within(form).getByRole("button", { name: "添加" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    await user.click(within(form).getByRole("button", { name: "设置标签" }));
+    await user.click(within(form).getByLabelText("人像"));
+    await user.click(within(form).getByRole("button", { name: "保存标签" }));
+
+    expect(invokeMock).toHaveBeenCalledWith("set_image_tags", {
+      request: { targetId: "image-1", tagIds: ["tag-1", "tag-2"] },
+    });
+    expect(invokeMock).toHaveBeenCalledWith("set_image_tags", {
+      request: { targetId: "image-2", tagIds: ["tag-2"] },
+    });
+    expect(screen.getByText("已为 2 张图片添加标签")).toBeInTheDocument();
+  });
+
   it("moves database storage after the user confirms a new folder", async () => {
     const user = userEvent.setup();
     const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
@@ -404,12 +564,13 @@ function mockImage(overrides: Record<string, unknown> = {}) {
   };
 }
 
-function mockTag() {
+function mockTag(overrides: Record<string, unknown> = {}) {
   return {
     id: "tag-1",
     name: "风景",
     color: "#4f7cff",
     createdAt: "2026-05-27T00:00:00Z",
     updatedAt: "2026-05-27T00:00:00Z",
+    ...overrides,
   };
 }
