@@ -22,6 +22,7 @@ afterEach(() => {
   invokeMock.mockReset();
   listenMock.mockReset();
   listenMock.mockImplementation(() => Promise.resolve(() => undefined));
+  vi.restoreAllMocks();
   vi.useRealTimers();
 });
 
@@ -380,6 +381,74 @@ describe("App", () => {
       request: { id: "image-2", isFavorite: true },
     });
     expect(screen.getByText("已更新 2 张图片的收藏状态")).toBeInTheDocument();
+  });
+
+  it("selects visible images from grid view for batch actions", async () => {
+    const user = userEvent.setup();
+    const collection = mockCollection({ imageCount: 2 });
+    const images = [
+      mockImage({
+        id: "image-1",
+        fileName: "one.jpg",
+        path: "/raw/one.jpg",
+        displayPath: "/display/one.jpg",
+      }),
+      mockImage({
+        id: "image-2",
+        fileName: "two.jpg",
+        path: "/raw/two.jpg",
+        displayPath: "/display/two.jpg",
+      }),
+    ];
+
+    Reflect.set(window, "__TAURI_INTERNALS__", {});
+    invokeMock.mockImplementation((command) => {
+      if (command === "get_app_status") {
+        return Promise.resolve(mockStatus(1, 2));
+      }
+      if (command === "list_collections") {
+        return Promise.resolve([collection]);
+      }
+      if (command === "mark_collection_viewed") {
+        return Promise.resolve(collection);
+      }
+      if (command === "list_images") {
+        return Promise.resolve(images);
+      }
+      if (
+        command === "list_tags" ||
+        command === "list_collection_tag_assignments" ||
+        command === "list_image_tag_assignments" ||
+        command === "get_settings"
+      ) {
+        return Promise.resolve([]);
+      }
+      if (command === "get_thumbnail") {
+        return Promise.resolve(null);
+      }
+      if (command === "copy_text_to_clipboard") {
+        return Promise.resolve(null);
+      }
+
+      return Promise.resolve(null);
+    });
+
+    render(<App />);
+
+    await user.click(await screen.findByText("测试合集"));
+    await user.click(screen.getByRole("button", { name: "图片网格视图" }));
+    const selectVisibleButton = screen.getByRole("button", { name: "选择当前筛选" });
+    await waitFor(() => expect(selectVisibleButton).not.toBeDisabled());
+
+    await user.click(selectVisibleButton);
+
+    const toolbar = screen.getByLabelText("批量图片操作");
+    expect(within(toolbar).getByText("已选 2 张")).toBeInTheDocument();
+
+    await user.click(within(toolbar).getByRole("button", { name: "复制路径" }));
+    expect(invokeMock).toHaveBeenCalledWith("copy_text_to_clipboard", {
+      text: "/display/one.jpg\n/display/two.jpg",
+    });
   });
 
   it("adds batch tags without replacing existing image tags", async () => {

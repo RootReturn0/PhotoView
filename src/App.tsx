@@ -3616,17 +3616,45 @@ function App() {
                               return (
                                 <article
                                   aria-label={image.fileName}
-                                  className="image-tile"
+                                  aria-selected={selectedImageIds.has(image.id)}
+                                  className={`image-tile ${
+                                    selectedImageIds.has(image.id) ? "selected" : ""
+                                  }`}
+                                  draggable
                                   key={image.id}
                                   role="button"
                                   tabIndex={0}
+                                  onContextMenu={(event) => {
+                                    event.preventDefault();
+                                    if (!selectedImageIds.has(image.id)) {
+                                      setSelectedImageIds(new Set([image.id]));
+                                    }
+                                    setImageContextMenu({
+                                      imageId: image.id,
+                                      x: event.clientX,
+                                      y: event.clientY,
+                                    });
+                                  }}
                                   onDoubleClick={() => openViewer(imageIndex)}
+                                  onDragEnd={handleImageDragEnd}
+                                  onDragStart={(event) => handleImageDragStart(event, image)}
                                   onKeyDown={(event) => {
                                     if (event.key === "Enter") {
                                       openViewer(imageIndex);
                                     }
                                   }}
                                 >
+                                  <label
+                                    className="image-select"
+                                    onClick={(event) => event.stopPropagation()}
+                                  >
+                                    <input
+                                      aria-label={t("selectImage")}
+                                      checked={selectedImageIds.has(image.id)}
+                                      type="checkbox"
+                                      onChange={() => toggleImageSelection(image.id)}
+                                    />
+                                  </label>
                                   <div className="image-tile-thumb">
                                     {thumbnails[image.id] ? (
                                       <img
